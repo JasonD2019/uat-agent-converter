@@ -4,6 +4,8 @@
 
 **[中文文档](README_CN.md)** | **English**
 
+[![GitHub](https://img.shields.io/badge/GitHub-JasonD2019/uat--agent--converter-blue?logo=github)](https://github.com/JasonD2019/uat-agent-converter)
+[![Live Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-green?logo=github)](https://jasond2019.github.io/uat-agent-converter/)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platforms](https://img.shields.io/badge/platforms-12-green.svg)
 ![Version](https://img.shields.io/badge/version-2.0-purple.svg)
