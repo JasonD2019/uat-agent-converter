@@ -814,3 +814,8 @@ window.FlowiseBundle = {
   encodeFlowiseReadme,
   encodeFlowiseToFiles
 };
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.FlowiseBundle;
+}

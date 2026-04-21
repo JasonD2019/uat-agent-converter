@@ -57,6 +57,11 @@ class UATEncoder {
 
 window.UATEncoder = UATEncoder;
 
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = UATEncoder;
+}
+
 // 向后兼容：从 encoder-pool.js 导入原有函数（如果存在）
 if (window.UATEncoderLegacy) {
   UATEncoder.runEncoderPool = window.UATEncoderLegacy.runEncoderPool;

@@ -507,3 +507,8 @@ window.ZedBundle = {
   encodeZedReadme,
   encodeZedToFiles
 };
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.ZedBundle;
+}

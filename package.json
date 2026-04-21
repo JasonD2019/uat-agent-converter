@@ -1,0 +1,52 @@
+{
+  "name": "uat-agent-converter",
+  "version": "1.0.0",
+  "description": "Cross-platform AI Agent Config Converter - Convert agent configs between Dify, Cursor, Claude, Windsurf and more",
+  "main": "src/cli/uat-cli.js",
+  "bin": {
+    "uat": "./bin/uat"
+  },
+  "scripts": {
+    "test": "node test-node.js",
+    "cli": "node src/cli/uat-cli.js",
+    "cli:test": "node test-cli.js"
+  },
+  "keywords": [
+    "ai-agent",
+    "config-converter",
+    "dify",
+    "cursor",
+    "claude",
+    "windsurf",
+    "hermes",
+    "openclaw",
+    "agent-config",
+    "cross-platform",
+    "offline"
+  ],
+  "author": "JasonD2019",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JasonD2019/uat-agent-converter.git"
+  },
+  "homepage": "https://jasond2019.github.io/uat-agent-converter/",
+  "bugs": {
+    "url": "https://github.com/JasonD2019/uat-agent-converter/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "bin/",
+    "src/cli/",
+    "src/core/",
+    "src/bundle/",
+    "src/detector/",
+    "src/parser/",
+    "src/encoder/",
+    "README.md",
+    "README_CN.md",
+    "LICENSE"
+  ]
+}

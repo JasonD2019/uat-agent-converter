@@ -337,3 +337,8 @@ window.UATCore = {
   API_ENDPOINT_TEMPLATE,
   WORKFLOW_STEP_TEMPLATE
 };
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.UATCore;
+}
