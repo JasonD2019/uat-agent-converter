@@ -24,6 +24,7 @@
 - **自动平台检测** — 根据上传文件自动识别源平台
 - **实时预览** — 即时查看解析文件和生成的 Schema
 - **多语言支持** — 英文/中文界面
+- **CLI & Skill 支持** — 命令行工具和 AI 助手 Skill，支持批量转换
 
 ## 支持平台
 
@@ -43,27 +44,56 @@
 
 ## 快速开始
 
-### 在线使用
+### To Human 🧑
 
-1. 在浏览器中打开 `index.html`
+人类用户直接使用（无需 AI 助手）：
+
+**在线使用**：
+1. 打开 [在线演示](https://jasond2019.github.io/uat-agent-converter/)
 2. 上传 Agent Bundle ZIP 文件（支持 Hermes、OpenClaw、Cursor 等）
 3. 查看解析文件和自动生成的 UAT-Schema
 4. 选择目标平台进行转换
 5. 下载转换后的配置或 Bundle ZIP
 
-### 本地开发
-
+**CLI 命令行**（需要 Node.js）：
 ```bash
-# 克隆仓库
-git clone https://github.com/your-username/uat-agent-converter.git
-cd uat-agent-converter
+# 显示帮助
+node src/cli/uat-cli.js help
 
-# 在浏览器中打开（无需构建）
-# 直接打开 index.html 即可使用
+# 列出支持的平台
+node src/cli/uat-cli.js platforms
 
-# 运行测试（需要 Node.js）
-node test-node.js
+# 自动检测平台
+node src/cli/uat-cli.js detect --input config.md
+
+# 解析配置生成 Schema
+node src/cli/uat-cli.js parse --input dify.yaml --platform dify --output schema.json
+
+# 转换 Schema 到目标平台
+node src/cli/uat-cli.js convert --schema schema.json --target cursor --output-dir ./output
 ```
+
+### To Agent 🤖
+
+AI 助手通过 Skill 自动完成转换：
+
+**使用方式**（需提供配置文件路径）：
+```text
+"从 Dify 导入 ./dify-agent.yaml，转换到 Cursor"
+"把 ./hermes/config.yaml 这个 Hermes 配置转换成 Windsurf 格式"
+"convert ./openclaw.json openclaw agent to claude"
+```
+
+**Skill 自动执行**：
+1. 读取配置文件
+2. 检测源平台
+3. 解析配置生成 UAT-Schema
+4. 转换到目标平台
+5. 保存输出文件到项目目录
+
+**支持平台**：Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude, FastGPT, Flowise, Copilot, Codex, Zed
+
+---
 
 ## UAT-Schema v2.0
 

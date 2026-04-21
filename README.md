@@ -23,6 +23,7 @@
 - **Auto Platform Detection** — Automatically detect source platform from uploaded files
 - **Real-time Preview** — View parsed files and generated schema instantly
 - **i18n Support** — English/Chinese interface
+- **CLI & Skill Support** — Command-line tool and AI assistant skill for batch conversion
 
 ## Supported Platforms
 
@@ -42,27 +43,56 @@
 
 ## Quick Start
 
-### Online Usage
+### To Human 🧑
 
-1. Open `index.html` in your browser
-2. Upload an Agent Bundle ZIP file (supports Hermes, OpenClaw, Cursor, etc.)
+For human users (direct usage without AI assistant):
+
+**Online Usage**:
+1. Open [Live Demo](https://jasond2019.github.io/uat-agent-converter/)
+2. Upload Agent Bundle ZIP (supports Hermes, OpenClaw, Cursor, etc.)
 3. View parsed files and auto-generated UAT-Schema
 4. Select target platform for conversion
 5. Download converted config or Bundle ZIP
 
-### Local Development
-
+**CLI Command Line** (Node.js required):
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/uat-agent-converter.git
-cd uat-agent-converter
+# Show help
+node src/cli/uat-cli.js help
 
-# Open in browser (no build required)
-# Simply open index.html in your browser
+# List supported platforms
+node src/cli/uat-cli.js platforms
 
-# Run tests (Node.js required)
-node test-node.js
+# Auto-detect platform from config file
+node src/cli/uat-cli.js detect --input config.md
+
+# Parse config to UAT-Schema
+node src/cli/uat-cli.js parse --input dify.yaml --platform dify --output schema.json
+
+# Convert Schema to target platform
+node src/cli/uat-cli.js convert --schema schema.json --target cursor --output-dir ./output
 ```
+
+### To Agent 🤖
+
+For AI assistants using the Skill:
+
+**Usage** (provide config file path):
+```text
+"从 Dify 导入 ./dify-agent.yaml，转换到 Cursor"
+"把 ./hermes/config.yaml 这个 Hermes 配置转换成 Windsurf 格式"
+"convert ./openclaw.json openclaw agent to claude"
+```
+
+**Skill Auto-executes**:
+1. Reads the config file
+2. Detects source platform
+3. Parses config to UAT-Schema
+4. Converts to target platform
+5. Saves output files to your project
+
+**Supported Platforms**: Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude, FastGPT, Flowise, Copilot, Codex, Zed
+
+---
 
 ## UAT-Schema v2.0
 
