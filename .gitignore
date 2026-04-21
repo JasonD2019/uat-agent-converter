@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+build/
+*.min.js
+*.min.css
+
+# Test outputs
+coverage/
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets (IMPORTANT)
+.env
+.env.local
+.env.*.local
+credentials/
+secrets/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Large files (optional)
+*.bundle.js.map
+
+# Obsidian vault (if syncing)
+.obsidian/

@@ -1,0 +1,2236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="filename" content="agent-converter.html" />
+  <title>Agent Config Converter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --blue-primary: #2563eb;
+      --blue-light: #eff6ff;
+      --blue-mid: #bfdbfe;
+      --green-success: #16a34a;
+      --green-light: #f0fdf4;
+      --red-danger: #dc2626;
+      --red-light: #fef2f2;
+      --border: #e2e8f0;
+      --bg-page: #f1f5f9;
+      --panel-bg: #ffffff;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    .app-container {
+      width: 1440px;
+      margin: 0 auto;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-mark {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+
+    .header-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
+    }
+
+    .header-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+
+    .badge-secure {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 11px;
+      background: var(--green-light);
+      border: 1px solid #bbf7d0;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--green-success);
+    }
+
+    .badge-secure .dot {
+      width: 6px; height: 6px;
+      background: var(--green-success);
+      border-radius: 50%;
+      animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .header-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ===== STEP INDICATOR ===== */
+    .steps-bar {
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 20px 0 0;
+    }
+
+    .step-num {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      border: 2px solid var(--border);
+      color: var(--text-muted);
+      transition: all 0.3s;
+      flex-shrink: 0;
+    }
+
+    .step-item.active .step-num {
+      background: var(--blue-primary);
+      border-color: var(--blue-primary);
+      color: #fff;
+    }
+
+    .step-item.done .step-num {
+      background: var(--green-success);
+      border-color: var(--green-success);
+      color: #fff;
+    }
+
+    .step-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      transition: color 0.3s;
+      white-space: nowrap;
+    }
+
+    .step-item.active .step-label { color: var(--blue-primary); }
+    .step-item.done .step-label { color: var(--green-success); }
+
+    .step-line {
+      flex: 1;
+      height: 2px;
+      background: var(--border);
+      margin: 0 12px;
+      border-radius: 2px;
+      transition: background 0.3s;
+    }
+
+    .step-line.done { background: var(--green-success); }
+    .step-line.active { background: var(--blue-mid); }
+
+    /* ===== MAIN CONTENT ===== */
+    .main-content {
+      flex: 1;
+      padding: 24px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 320px 1fr;
+      gap: 20px;
+      flex: 1;
+    }
+
+    /* ===== PANEL ===== */
+    .panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      transition: box-shadow 0.2s;
+      min-height: 560px;
+    }
+
+    .panel:hover {
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    }
+
+    .panel-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #fafafa;
+      flex-shrink: 0;
+    }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .panel-title-icon {
+      width: 28px; height: 28px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-blue { background: var(--blue-light); color: var(--blue-primary); }
+    .icon-purple { background: #f3e8ff; color: #7c3aed; }
+    .icon-green { background: var(--green-light); color: var(--green-success); }
+
+    .panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .panel-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ===== DROP ZONE ===== */
+    .drop-zone {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 32px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 2px dashed transparent;
+      margin: 16px;
+      border-radius: 10px;
+    }
+
+    .drop-zone:hover, .drop-zone.drag-over {
+      background: var(--blue-light);
+      border-color: var(--blue-mid);
+    }
+
+    .drop-zone.drag-over {
+      border-color: var(--blue-primary);
+      background: #dbeafe;
+    }
+
+    .drop-icon {
+      width: 52px; height: 52px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #eff6ff, #dbeafe);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--blue-primary);
+    }
+
+    .drop-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .drop-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .drop-formats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      justify-content: center;
+      margin-top: 4px;
+    }
+
+    .format-chip {
+      padding: 3px 8px;
+      background: var(--bg-page);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    /* ===== TEXTAREA / CODE ===== */
+    .code-editor {
+      flex: 1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      padding: 16px;
+      border: none;
+      outline: none;
+      resize: none;
+      color: var(--text-primary);
+      background: #fff;
+      width: 100%;
+      height: 100%;
+    }
+
+    .code-display {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.8;
+      color: var(--text-primary);
+    }
+
+    /* JSON Syntax Highlight */
+    .json-key { color: #7c3aed; }
+    .json-string { color: #16a34a; }
+    .json-number { color: #d97706; }
+    .json-bool { color: #dc2626; }
+    .json-null { color: #64748b; }
+    .json-punctuation { color: #64748b; }
+
+    /* ===== INPUT SPLIT ===== */
+    .input-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .input-shown { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+    .input-hidden { display: none; }
+
+    /* ===== PLATFORM DETECTED ===== */
+    .detected-banner {
+      margin: 12px 16px 0;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #bbf7d0;
+      background: var(--green-light);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .detected-banner.hidden { display: none; }
+
+    .detected-logo {
+      width: 28px; height: 28px;
+      border-radius: 7px;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+    }
+
+    .detected-info { flex: 1; }
+    .detected-name { font-size: 12px; font-weight: 600; color: #15803d; }
+    .detected-sub { font-size: 11px; color: #4ade80; color: #166534; }
+
+    .confidence-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+    }
+
+    .confidence-track {
+      flex: 1;
+      height: 3px;
+      background: #bbf7d0;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .confidence-fill {
+      height: 100%;
+      background: var(--green-success);
+      border-radius: 2px;
+      transition: width 0.6s ease;
+    }
+
+    .confidence-text {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--green-success);
+    }
+
+    /* ===== SCHEMA PANEL ===== */
+    .schema-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 24px;
+      color: var(--text-muted);
+    }
+
+    .schema-fields {
+      padding: 12px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .schema-group {
+      margin-bottom: 14px;
+    }
+
+    .schema-group-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      padding: 0 4px;
+      margin-bottom: 6px;
+    }
+
+    .schema-field {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: #fafafa;
+      margin-bottom: 5px;
+      transition: background 0.15s;
+    }
+
+    .schema-field:hover { background: var(--blue-light); border-color: var(--blue-mid); }
+
+    .field-type-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .type-string { background: #ede9fe; color: #6d28d9; }
+    .type-object { background: #fef3c7; color: #d97706; }
+    .type-array { background: #dbeafe; color: #1d4ed8; }
+    .type-boolean { background: #fee2e2; color: #dc2626; }
+    .type-number { background: #d1fae5; color: #065f46; }
+
+    .field-info { flex: 1; min-width: 0; }
+    .field-name { font-size: 11px; font-weight: 600; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+    .field-value { font-size: 10px; color: var(--text-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .field-required {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 5px;
+    }
+
+    .req-yes { background: #dc2626; }
+    .req-no { background: var(--border); }
+
+    /* ===== COMPAT SCORE ===== */
+    .compat-section {
+      padding: 12px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .compat-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+
+    .compat-list { display: flex; flex-direction: column; gap: 5px; }
+
+    .compat-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .compat-platform-name {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      width: 80px;
+      flex-shrink: 0;
+    }
+
+    .compat-track {
+      flex: 1;
+      height: 4px;
+      background: var(--bg-page);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .compat-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.8s ease;
+    }
+
+    .fill-high { background: linear-gradient(90deg, #22c55e, #16a34a); }
+    .fill-mid { background: linear-gradient(90deg, #f59e0b, #d97706); }
+    .fill-low { background: linear-gradient(90deg, #f87171, #dc2626); }
+
+    .compat-score { font-size: 10px; font-weight: 600; color: var(--text-muted); width: 28px; text-align: right; flex-shrink: 0; }
+
+    /* ===== OUTPUT PANEL ===== */
+    .output-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 24px;
+      color: var(--text-muted);
+    }
+
+    .output-stats {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: #fafafa;
+      flex-shrink: 0;
+    }
+
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+    }
+
+    .stat-label { color: var(--text-muted); }
+    .stat-value { font-weight: 600; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+
+    /* ===== FOOTER ===== */
+    .footer {
+      background: #fff;
+      border-top: 1px solid var(--border);
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-shrink: 0;
+    }
+
+    .footer-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .footer-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .platform-selector {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .platform-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: all 0.2s;
+      user-select: none;
+    }
+
+    .platform-btn:hover {
+      border-color: var(--blue-primary);
+      color: var(--blue-primary);
+      background: var(--blue-light);
+    }
+
+    .platform-btn.selected {
+      border-color: var(--blue-primary);
+      background: var(--blue-light);
+      color: var(--blue-primary);
+    }
+
+    .platform-btn .plat-emoji { font-size: 14px; }
+
+    .footer-divider {
+      width: 1px;
+      height: 36px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    /* ===== BUTTONS ===== */
+    .btn {
+      position: relative;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      outline: none;
+      transition: all 0.2s;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--blue-primary);
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(37,99,235,0.35);
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+      box-shadow: 0 4px 12px rgba(37,99,235,0.4);
+      transform: translateY(-1px);
+    }
+
+    .btn-success {
+      background: var(--green-success);
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(22,163,74,0.35);
+    }
+
+    .btn-success:hover {
+      background: #15803d;
+      box-shadow: 0 4px 12px rgba(22,163,74,0.4);
+      transform: translateY(-1px);
+    }
+
+    .btn-danger {
+      background: var(--red-danger);
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(220,38,38,0.3);
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+      box-shadow: 0 4px 12px rgba(220,38,38,0.35);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1.5px solid var(--border);
+    }
+
+    .btn-ghost:hover {
+      background: var(--bg-page);
+      border-color: #94a3b8;
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+
+    .btn-outline-blue {
+      background: var(--blue-light);
+      color: var(--blue-primary);
+      border: 1.5px solid var(--blue-mid);
+    }
+
+    .btn-outline-blue:hover {
+      background: #dbeafe;
+      transform: translateY(-1px);
+    }
+
+    .btn-sm { padding: 5px 10px; font-size: 11px; border-radius: 6px; }
+    .btn-icon { width: 28px; height: 28px; padding: 0; border-radius: 6px; justify-content: center; }
+
+    /* Ripple effect */
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.35);
+      transform: scale(0);
+      animation: ripple-anim 0.55s linear;
+      pointer-events: none;
+    }
+
+    @keyframes ripple-anim {
+      to { transform: scale(4); opacity: 0; }
+    }
+
+    /* ===== ICON BUTTON ===== */
+    .icon-btn {
+      width: 28px; height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #fff;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+
+    .icon-btn:hover {
+      background: var(--bg-page);
+      color: var(--text-primary);
+      border-color: #94a3b8;
+    }
+
+    /* ===== SCROLLBAR ===== */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* ===== TOAST ===== */
+    .toast-container {
+      position: fixed;
+      bottom: 100px;
+      right: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    .toast {
+      padding: 11px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      animation: slideIn 0.3s ease;
+      pointer-events: all;
+      max-width: 320px;
+    }
+
+    .toast-success { background: #fff; border-left: 4px solid var(--green-success); color: var(--text-primary); }
+    .toast-error { background: #fff; border-left: 4px solid var(--red-danger); color: var(--text-primary); }
+    .toast-info { background: #fff; border-left: 4px solid var(--blue-primary); color: var(--text-primary); }
+
+    .toast.hide { animation: slideOut 0.3s ease forwards; }
+
+    @keyframes slideIn { from { transform: translateX(60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(60px); opacity: 0; } }
+
+    /* ===== LOADING ===== */
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      border-radius: 12px;
+      z-index: 50;
+      display: none;
+    }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--blue-mid);
+      border-top-color: var(--blue-primary);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-text { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+
+    /* ===== TRANSITIONS ===== */
+    .fade-in { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ===== VALID / ERROR indicator ===== */
+    .editor-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .editor-toolbar {
+      padding: 6px 12px;
+      background: #fafafa;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .syntax-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+    }
+
+    .status-valid { background: var(--green-success); }
+    .status-invalid { background: var(--red-danger); }
+    .status-empty { background: var(--text-muted); }
+
+    .line-count { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      backdrop-filter: blur(3px);
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: #fff;
+      border-radius: 14px;
+      padding: 28px;
+      width: 480px;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.2);
+      animation: modalIn 0.25s ease;
+    }
+
+    @keyframes modalIn { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .modal-title { font-size: 16px; font-weight: 700; }
+    .modal-body { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+    .modal-footer { margin-top: 22px; display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* Platform grid in modal */
+    .platform-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .platform-card {
+      padding: 12px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: 9px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .platform-card:hover {
+      border-color: var(--blue-primary);
+      background: var(--blue-light);
+    }
+
+    .platform-card.sel {
+      border-color: var(--blue-primary);
+      background: var(--blue-light);
+    }
+
+    .platform-card .emoji { font-size: 22px; display: block; margin-bottom: 4px; }
+    .platform-card .name { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+    .platform-card .ver { font-size: 10px; color: var(--text-muted); }
+
+    /* scroll line numbers flair */
+    .code-display pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+
+    /* Section scroll */
+    .schema-fields-scroll { overflow-y: auto; flex: 1; }
+
+    /* Animate bars on load */
+    [data-width] { width: 0; }
+
+    /* pulse loader dots */
+    .dots span {
+      display: inline-block;
+      animation: dotBounce 1.2s infinite;
+    }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes dotBounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-5px); }
+    }
+  </style>
+</head>
+<body class="antialiased">
+
+<div class="app-container">
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo-mark">
+        <i data-lucide="zap" style="width:18px;height:18px;"></i>
+      </div>
+      <div>
+        <div class="header-title">Agent Config Converter</div>
+        <div class="header-subtitle">跨平台 AI Agent 配置转换器 · v2.4.1</div>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="badge-secure">
+        <span class="dot"></span>
+        本地处理，数据不上传
+      </div>
+      <div class="header-meta">支持 12 个 AI 平台</div>
+      <button class="icon-btn" id="helpBtn" title="帮助文档">
+        <i data-lucide="help-circle" style="width:14px;height:14px;"></i>
+      </button>
+      <button class="icon-btn" id="settingsBtn" title="设置">
+        <i data-lucide="settings" style="width:14px;height:14px;"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== STEP INDICATOR ===== -->
+  <div class="steps-bar">
+    <div class="step-item active" id="step1">
+      <div class="step-num">1</div>
+      <div class="step-label">输入配置</div>
+    </div>
+    <div class="step-line" id="line1"></div>
+    <div class="step-item" id="step2">
+      <div class="step-num">2</div>
+      <div class="step-label">识别平台</div>
+    </div>
+    <div class="step-line" id="line2"></div>
+    <div class="step-item" id="step3">
+      <div class="step-num">3</div>
+      <div class="step-label">Schema 解析</div>
+    </div>
+    <div class="step-line" id="line3"></div>
+    <div class="step-item" id="step4">
+      <div class="step-num">4</div>
+      <div class="step-label">选择目标平台</div>
+    </div>
+    <div class="step-line" id="line4"></div>
+    <div class="step-item" id="step5">
+      <div class="step-num">5</div>
+      <div class="step-label">转换 & 下载</div>
+    </div>
+    <div style="flex:1;"></div>
+    <div style="font-size:11px;color:var(--text-muted);" id="stepHint">请在左侧输入 Agent 配置文件</div>
+  </div>
+
+  <!-- ===== MAIN CONTENT ===== -->
+  <main class="main-content">
+    <div class="three-col">
+
+      <!-- ========== LEFT: INPUT PANEL ========== -->
+      <div class="panel" id="inputPanel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <div class="panel-title-icon icon-blue">
+              <i data-lucide="file-code" style="width:14px;height:14px;"></i>
+            </div>
+            源配置输入
+          </div>
+          <div class="panel-actions">
+            <span id="inputFormatTag" style="font-size:10px;color:var(--text-muted);padding:2px 7px;background:var(--bg-page);border:1px solid var(--border);border-radius:4px;display:none;">JSON</span>
+            <button class="icon-btn" id="pasteBtn" title="粘贴">
+              <i data-lucide="clipboard" style="width:13px;height:13px;"></i>
+            </button>
+            <button class="icon-btn" id="clearInputBtn" title="清除">
+              <i data-lucide="x" style="width:13px;height:13px;"></i>
+            </button>
+          </div>
+        </div>
+        <div class="panel-body" id="inputPanelBody">
+          <!-- Drop Zone (shown when empty) -->
+          <div class="drop-zone" id="dropZone">
+            <div class="drop-icon">
+              <i data-lucide="upload-cloud" style="width:26px;height:26px;"></i>
+            </div>
+            <div class="drop-title">拖拽文件到此处 或 点击上传</div>
+            <div class="drop-hint">支持 .json · .yaml · .yml · .toml 格式<br>或直接粘贴 JSON / YAML 文本</div>
+            <div class="drop-formats">
+              <span class="format-chip">OpenAI</span>
+              <span class="format-chip">Anthropic</span>
+              <span class="format-chip">LangChain</span>
+              <span class="format-chip">AutoGen</span>
+              <span class="format-chip">CrewAI</span>
+              <span class="format-chip">Dify</span>
+              <span class="format-chip">Coze</span>
+              <span class="format-chip">BabyAGI</span>
+              <span class="format-chip">AgentGPT</span>
+              <span class="format-chip">MetaGPT</span>
+              <span class="format-chip">Flowise</span>
+              <span class="format-chip">Botpress</span>
+            </div>
+            <input type="file" id="fileInput" accept=".json,.yaml,.yml,.toml" style="display:none;" />
+          </div>
+
+          <!-- Detected Banner -->
+          <div class="detected-banner hidden" id="detectedBanner">
+            <div class="detected-logo" id="detectedEmoji">🤖</div>
+            <div class="detected-info">
+              <div class="detected-name" id="detectedName">未识别</div>
+              <div class="confidence-bar">
+                <div class="confidence-track">
+                  <div class="confidence-fill" id="confidenceFill" style="width:0%"></div>
+                </div>
+                <span class="confidence-text" id="confidenceText">0%</span>
+              </div>
+              <div class="detected-sub" id="detectedSub">正在分析...</div>
+            </div>
+            <button class="btn btn-sm btn-ghost" id="changeSourceBtn">更换</button>
+          </div>
+
+          <!-- Editor Area -->
+          <div class="input-area input-hidden" id="editorArea">
+            <div class="editor-toolbar">
+              <div class="syntax-status">
+                <div class="status-dot status-empty" id="syntaxDot"></div>
+                <span id="syntaxLabel" style="color:var(--text-muted);">等待输入</span>
+              </div>
+              <div class="line-count" id="lineCount">0 行 · 0 字符</div>
+            </div>
+            <div id="codeHighlight" class="code-display" style="display:none;"></div>
+            <textarea class="code-editor" id="codeEditor" placeholder='粘贴 Agent 配置 JSON / YAML...'></textarea>
+          </div>
+
+          <div class="loading-overlay" id="inputLoading">
+            <div class="spinner"></div>
+            <div class="loading-text">正在解析配置<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== MIDDLE: SCHEMA PREVIEW ========== -->
+      <div class="panel" id="schemaPanel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <div class="panel-title-icon icon-purple">
+              <i data-lucide="layout-list" style="width:14px;height:14px;"></i>
+            </div>
+            Schema 预览
+          </div>
+          <div class="panel-actions">
+            <span id="fieldCount" style="font-size:10px;color:var(--text-muted);">0 字段</span>
+          </div>
+        </div>
+        <div class="panel-body" style="overflow:hidden;display:flex;flex-direction:column;">
+          <div class="schema-empty" id="schemaEmpty">
+            <i data-lucide="layers" style="width:36px;height:36px;opacity:0.2;"></i>
+            <div style="font-size:13px;font-weight:500;">Schema 等待解析</div>
+            <div style="font-size:12px;">输入配置后自动分析字段结构</div>
+          </div>
+
+          <div class="schema-fields-scroll" id="schemaFields" style="display:none;overflow-y:auto;flex:1;padding:10px;">
+          </div>
+
+          <div class="compat-section" id="compatSection" style="display:none;">
+            <div class="compat-title">目标平台兼容性评分</div>
+            <div class="compat-list" id="compatList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== RIGHT: OUTPUT PANEL ========== -->
+      <div class="panel" id="outputPanel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <div class="panel-title-icon icon-green">
+              <i data-lucide="file-check" style="width:14px;height:14px;"></i>
+            </div>
+            转换输出
+          </div>
+          <div class="panel-actions">
+            <span id="outputPlatformTag" style="font-size:10px;color:var(--text-muted);padding:2px 7px;background:var(--bg-page);border:1px solid var(--border);border-radius:4px;display:none;">输出平台</span>
+            <button class="icon-btn" id="copyOutputBtn" title="复制输出" style="display:none;">
+              <i data-lucide="copy" style="width:13px;height:13px;"></i>
+            </button>
+            <button class="icon-btn" id="expandOutputBtn" title="全屏预览" style="display:none;">
+              <i data-lucide="maximize-2" style="width:13px;height:13px;"></i>
+            </button>
+          </div>
+        </div>
+        <div class="panel-body" style="overflow:hidden;display:flex;flex-direction:column;">
+          <div class="output-empty" id="outputEmpty">
+            <i data-lucide="arrow-right-circle" style="width:36px;height:36px;opacity:0.2;"></i>
+            <div style="font-size:13px;font-weight:500;">等待转换</div>
+            <div style="font-size:12px;text-align:center;">选择目标平台后<br>点击"开始转换"</div>
+          </div>
+
+          <div id="outputContent" class="code-display fade-in" style="display:none;flex:1;overflow-y:auto;"></div>
+
+          <div class="loading-overlay" id="outputLoading">
+            <div class="spinner"></div>
+            <div class="loading-text">正在转换<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+          </div>
+
+          <div class="output-stats" id="outputStats" style="display:none;">
+            <div class="stat-item">
+              <span class="stat-label">字段数</span>
+              <span class="stat-value" id="outFieldCount">—</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">大小</span>
+              <span class="stat-value" id="outSize">—</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">兼容度</span>
+              <span class="stat-value" id="outCompat">—</span>
+            </div>
+            <div class="stat-item" style="margin-left:auto;">
+              <span class="stat-label">转换耗时</span>
+              <span class="stat-value" id="outTime">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <div class="footer-section">
+      <div class="footer-label">
+        <i data-lucide="target" style="width:13px;height:13px;"></i>
+        目标平台
+      </div>
+      <div class="platform-selector" id="platformSelector">
+        <button class="platform-btn" data-platform="openai">
+          <span class="plat-emoji">🟢</span> OpenAI
+        </button>
+        <button class="platform-btn" data-platform="anthropic">
+          <span class="plat-emoji">🔶</span> Anthropic
+        </button>
+        <button class="platform-btn" data-platform="langchain">
+          <span class="plat-emoji">🦜</span> LangChain
+        </button>
+        <button class="platform-btn" data-platform="autogen">
+          <span class="plat-emoji">⚙️</span> AutoGen
+        </button>
+        <button class="platform-btn" data-platform="crewai">
+          <span class="plat-emoji">👥</span> CrewAI
+        </button>
+        <button class="platform-btn" data-platform="dify">
+          <span class="plat-emoji">💡</span> Dify
+        </button>
+        <button class="platform-btn" data-platform="coze">
+          <span class="plat-emoji">🌀</span> Coze
+        </button>
+        <button class="platform-btn" data-platform="flowise">
+          <span class="plat-emoji">🌊</span> Flowise
+        </button>
+      </div>
+    </div>
+
+    <div class="footer-divider"></div>
+
+    <div class="footer-actions">
+      <button class="btn btn-ghost" id="loadSampleBtn">
+        <i data-lucide="flask-conical" style="width:13px;height:13px;"></i>
+        加载示例
+      </button>
+      <button class="btn btn-ghost" id="validateBtn">
+        <i data-lucide="shield-check" style="width:13px;height:13px;"></i>
+        验证配置
+      </button>
+      <button class="btn btn-outline-blue" id="previewBtn">
+        <i data-lucide="eye" style="width:13px;height:13px;"></i>
+        预览转换
+      </button>
+      <button class="btn btn-primary" id="convertBtn">
+        <i data-lucide="zap" style="width:13px;height:13px;"></i>
+        开始转换
+      </button>
+      <button class="btn btn-success" id="downloadBtn">
+        <i data-lucide="download" style="width:13px;height:13px;"></i>
+        下载文件
+      </button>
+      <button class="btn btn-danger" id="downloadBundleBtn">
+        <i data-lucide="package" style="width:13px;height:13px;"></i>
+        Bundle ZIP
+      </button>
+    </div>
+  </footer>
+
+</div>
+
+<!-- ===== TOAST CONTAINER ===== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ===== MODAL: Platform Select ===== -->
+<div class="modal-overlay" id="platformModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">选择目标平台</div>
+      <button class="icon-btn" id="closeModal">
+        <i data-lucide="x" style="width:14px;height:14px;"></i>
+      </button>
+    </div>
+    <div class="modal-body">
+      选择你想要将配置转换到的目标 AI 平台格式：
+      <div class="platform-grid" id="modalPlatformGrid">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="cancelModal">取消</button>
+      <button class="btn btn-primary" id="confirmModal">
+        <i data-lucide="check" style="width:13px;height:13px;"></i>
+        确认选择
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Fullscreen Output ===== -->
+<div class="modal-overlay" id="fullscreenModal">
+  <div class="modal" style="width:860px;max-height:80vh;display:flex;flex-direction:column;">
+    <div class="modal-header" style="flex-shrink:0;">
+      <div class="modal-title">输出预览（全屏）</div>
+      <button class="icon-btn" id="closeFullscreen">
+        <i data-lucide="x" style="width:14px;height:14px;"></i>
+      </button>
+    </div>
+    <div id="fullscreenContent" class="code-display" style="flex:1;overflow-y:auto;background:#fafafa;border-radius:8px;border:1px solid var(--border);max-height:55vh;"></div>
+    <div class="modal-footer" style="flex-shrink:0;">
+      <button class="btn btn-ghost" id="closeFullscreen2">关闭</button>
+      <button class="btn btn-primary" id="copyFullscreen">
+        <i data-lucide="copy" style="width:13px;height:13px;"></i>
+        复制全部
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+  // =========================================================
+  // DATA: Platform definitions
+  // =========================================================
+  const PLATFORMS = {
+    openai: { name: 'OpenAI', emoji: '🟢', version: 'API v1', color: '#10b981' },
+    anthropic: { name: 'Anthropic', emoji: '🔶', version: 'Claude API', color: '#d97706' },
+    langchain: { name: 'LangChain', emoji: '🦜', version: 'v0.2', color: '#2563eb' },
+    autogen: { name: 'AutoGen', emoji: '⚙️', version: 'v0.4', color: '#6d28d9' },
+    crewai: { name: 'CrewAI', emoji: '👥', version: 'v0.30', color: '#db2777' },
+    dify: { name: 'Dify', emoji: '💡', version: 'v0.6', color: '#0891b2' },
+    coze: { name: 'Coze', emoji: '🌀', version: 'v2', color: '#7c3aed' },
+    flowise: { name: 'Flowise', emoji: '🌊', version: 'v2', color: '#0369a1' },
+    babyagi: { name: 'BabyAGI', emoji: '👶', version: 'Classic', color: '#dc2626' },
+    agentgpt: { name: 'AgentGPT', emoji: '🤖', version: 'v1.1', color: '#4f46e5' },
+    metagpt: { name: 'MetaGPT', emoji: '🧬', version: 'v0.7', color: '#059669' },
+    botpress: { name: 'Botpress', emoji: '🤝', version: 'v12', color: '#b45309' }
+  };
+
+  // Sample configs for detection
+  const SAMPLE_CONFIGS = {
+    openai: {
+      model: "gpt-4o",
+      messages: [{ role: "system", content: "You are a helpful assistant." }],
+      tools: [{ type: "function", function: { name: "get_weather", description: "Get weather info", parameters: { type: "object", properties: { location: { type: "string" } }, required: ["location"] } } }],
+      temperature: 0.7,
+      max_tokens: 2048,
+      stream: true
+    },
+    langchain: {
+      _type: "agent",
+      agent_type: "openai-functions",
+      llm: { _type: "openai-chat", model_name: "gpt-4", temperature: 0 },
+      tools: [{ name: "search", description: "Search the web", func: "serpapi_search" }],
+      memory: { _type: "conversation_buffer", return_messages: true },
+      verbose: true,
+      max_iterations: 15
+    },
+    crewai: {
+      crew_name: "Research Team",
+      agents: [{ role: "Senior Researcher", goal: "Discover new insights", backstory: "You are an expert researcher.", llm: "gpt-4o", tools: ["web_search", "read_file"] }],
+      tasks: [{ description: "Analyze the given topic thoroughly", expected_output: "A detailed report", agent: "Senior Researcher" }],
+      process: "sequential",
+      verbose: true
+    }
+  };
+
+  // =========================================================
+  // STATE
+  // =========================================================
+  let state = {
+    inputText: '',
+    parsedConfig: null,
+    detectedPlatform: null,
+    targetPlatform: null,
+    outputText: '',
+    currentStep: 1,
+    isValid: false
+  };
+
+  // =========================================================
+  // DOM REFERENCES
+  // =========================================================
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const codeEditor = document.getElementById('codeEditor');
+  const editorArea = document.getElementById('editorArea');
+  const detectedBanner = document.getElementById('detectedBanner');
+  const detectedEmoji = document.getElementById('detectedEmoji');
+  const detectedName = document.getElementById('detectedName');
+  const detectedSub = document.getElementById('detectedSub');
+  const confidenceFill = document.getElementById('confidenceFill');
+  const confidenceText = document.getElementById('confidenceText');
+  const schemaEmpty = document.getElementById('schemaEmpty');
+  const schemaFields = document.getElementById('schemaFields');
+  const compatSection = document.getElementById('compatSection');
+  const compatList = document.getElementById('compatList');
+  const outputEmpty = document.getElementById('outputEmpty');
+  const outputContent = document.getElementById('outputContent');
+  const outputStats = document.getElementById('outputStats');
+  const platformSelector = document.getElementById('platformSelector');
+  const toastContainer = document.getElementById('toastContainer');
+  const inputLoading = document.getElementById('inputLoading');
+  const outputLoading = document.getElementById('outputLoading');
+  const fieldCount = document.getElementById('fieldCount');
+  const syntaxDot = document.getElementById('syntaxDot');
+  const syntaxLabel = document.getElementById('syntaxLabel');
+  const lineCount = document.getElementById('lineCount');
+  const inputFormatTag = document.getElementById('inputFormatTag');
+  const outputPlatformTag = document.getElementById('outputPlatformTag');
+  const copyOutputBtn = document.getElementById('copyOutputBtn');
+  const expandOutputBtn = document.getElementById('expandOutputBtn');
+  const stepHint = document.getElementById('stepHint');
+
+  // =========================================================
+  // RIPPLE EFFECT
+  // =========================================================
+  function addRipple(btn) {
+    btn.addEventListener('click', function (e) {
+      const rect = btn.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height);
+      const x = e.clientX - rect.left - size / 2;
+      const y = e.clientY - rect.top - size / 2;
+      const ripple = document.createElement('span');
+      ripple.classList.add('ripple');
+      ripple.style.width = ripple.style.height = size + 'px';
+      ripple.style.left = x + 'px';
+      ripple.style.top = y + 'px';
+      btn.appendChild(ripple);
+      setTimeout(() => ripple.remove(), 600);
+    });
+  }
+
+  document.querySelectorAll('.btn').forEach(addRipple);
+
+  // =========================================================
+  // TOAST
+  // =========================================================
+  function showToast(msg, type = 'info', duration = 3000) {
+    const icons = { success: 'check-circle', error: 'x-circle', info: 'info' };
+    const colors = { success: '#16a34a', error: '#dc2626', info: '#2563eb' };
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.innerHTML = '<i data-lucide="' + icons[type] + '" style="width:15px;height:15px;color:' + colors[type] + ';flex-shrink:0;"></i>' + msg;
+    toastContainer.appendChild(toast);
+    lucide.createIcons();
+    const timer = setTimeout(() => {
+      toast.classList.add('hide');
+      setTimeout(() => toast.remove(), 350);
+    }, duration);
+    toast.addEventListener('click', () => {
+      clearTimeout(timer);
+      toast.classList.add('hide');
+      setTimeout(() => toast.remove(), 350);
+    });
+  }
+
+  // =========================================================
+  // STEP INDICATOR
+  // =========================================================
+  function setStep(n) {
+    state.currentStep = n;
+    const hints = ['', '请在左侧输入 Agent 配置文件', '正在识别平台格式...', '解析 Schema 字段结构...', '请在下方选择目标平台', '转换完成，可下载文件'];
+    for (let i = 1; i <= 5; i++) {
+      const el = document.getElementById('step' + i);
+      el.classList.remove('active', 'done');
+      if (i < n) el.classList.add('done');
+      else if (i === n) el.classList.add('active');
+    }
+    for (let i = 1; i <= 4; i++) {
+      const line = document.getElementById('line' + i);
+      line.classList.remove('done', 'active');
+      if (i < n) line.classList.add('done');
+      else if (i === n) line.classList.add('active');
+    }
+    if (hints[n]) stepHint.textContent = hints[n];
+  }
+
+  // =========================================================
+  // JSON SYNTAX HIGHLIGHT
+  // =========================================================
+  function syntaxHighlight(json) {
+    if (typeof json !== 'string') {
+      json = JSON.stringify(json, null, 2);
+    }
+    json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+      let cls = 'json-number';
+      if (/^"/.test(match)) {
+        if (/:$/.test(match)) cls = 'json-key';
+        else cls = 'json-string';
+      } else if (/true|false/.test(match)) {
+        cls = 'json-bool';
+      } else if (/null/.test(match)) {
+        cls = 'json-null';
+      }
+      return '<span class="' + cls + '">' + match + '</span>';
+    });
+  }
+
+  // =========================================================
+  // DETECT PLATFORM
+  // =========================================================
+  function detectPlatform(text) {
+    try {
+      const obj = JSON.parse(text);
+      const keys = Object.keys(obj);
+      const str = JSON.stringify(obj).toLowerCase();
+
+      const scores = {};
+
+      if (obj.model && (obj.model.includes('gpt') || obj.model.includes('o1') || obj.model.includes('o3'))) scores.openai = 90;
+      if (obj.messages && Array.isArray(obj.messages)) scores.openai = (scores.openai || 0) + 20;
+      if (obj._type === 'agent' || obj.agent_type) scores.langchain = 85;
+      if (obj.llm && obj.llm._type) scores.langchain = (scores.langchain || 0) + 15;
+      if (obj.crew_name || obj.agents && obj.tasks && obj.process) scores.crewai = 92;
+      if (obj.model && (obj.model.includes('claude'))) scores.anthropic = 90;
+      if (obj.max_tokens && obj.messages && str.includes('anthropic')) scores.anthropic = (scores.anthropic || 0) + 20;
+      if (obj.agents && obj.config && obj.config_list) scores.autogen = 88;
+      if (str.includes('dify') || obj.app_id) scores.dify = 80;
+      if (str.includes('coze') || obj.bot_id) scores.coze = 80;
+      if (str.includes('flowise') || obj.chatflow_id) scores.flowise = 78;
+      if (str.includes('babyagi') || (obj.objective && obj.initial_task)) scores.babyagi = 82;
+      if (str.includes('metagpt') || (obj.roles && obj.environment)) scores.metagpt = 80;
+      if (str.includes('botpress') || obj.botId) scores.botpress = 78;
+      if (str.includes('agentgpt') || (obj.goal && obj.name && !obj.crew_name)) scores.agentgpt = 75;
+
+      // Find max
+      let best = null, bestScore = 0;
+      for (const [k, v] of Object.entries(scores)) {
+        if (v > bestScore) { bestScore = v; best = k; }
+      }
+
+      if (!best) {
+        // Fallback generic detection
+        if (keys.includes('model')) best = 'openai', bestScore = 60;
+        else if (keys.includes('agents')) best = 'autogen', bestScore = 55;
+        else best = 'openai', bestScore = 40;
+      }
+
+      return { platform: best, confidence: Math.min(bestScore, 99) };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // =========================================================
+  // PARSE SCHEMA FIELDS
+  // =========================================================
+  function parseSchemaFields(obj, prefix = '', depth = 0) {
+    const fields = [];
+    if (depth > 2 || !obj || typeof obj !== 'object') return fields;
+    for (const [key, val] of Object.entries(obj)) {
+      const fullKey = prefix ? prefix + '.' + key : key;
+      let type = 'string';
+      if (Array.isArray(val)) type = 'array';
+      else if (typeof val === 'object' && val !== null) type = 'object';
+      else if (typeof val === 'boolean') type = 'boolean';
+      else if (typeof val === 'number') type = 'number';
+      else type = 'string';
+      const display = Array.isArray(val) ? '[' + val.length + ' items]'
+        : typeof val === 'object' && val !== null ? '{' + Object.keys(val).length + ' keys}'
+        : String(val).slice(0, 40);
+      fields.push({ key: fullKey, type, display, required: depth === 0 });
+      if (typeof val === 'object' && val !== null && !Array.isArray(val) && depth < 1) {
+        fields.push(...parseSchemaFields(val, fullKey, depth + 1));
+      }
+    }
+    return fields;
+  }
+
+  // =========================================================
+  // RENDER SCHEMA
+  // =========================================================
+  function renderSchema(obj) {
+    const fields = parseSchemaFields(obj);
+    fieldCount.textContent = fields.length + ' 字段';
+
+    const topLevel = fields.filter(f => !f.key.includes('.'));
+    const nested = fields.filter(f => f.key.includes('.'));
+
+    let html = '';
+
+    if (topLevel.length) {
+      html += '<div class="schema-group"><div class="schema-group-title">顶层字段</div>';
+      for (const f of topLevel) {
+        html += renderFieldRow(f);
+      }
+      html += '</div>';
+    }
+
+    if (nested.length) {
+      html += '<div class="schema-group"><div class="schema-group-title">嵌套字段</div>';
+      for (const f of nested.slice(0, 12)) {
+        html += renderFieldRow(f);
+      }
+      if (nested.length > 12) {
+        html += '<div style="text-align:center;font-size:11px;color:var(--text-muted);padding:6px;">+' + (nested.length - 12) + ' 更多字段...</div>';
+      }
+      html += '</div>';
+    }
+
+    schemaFields.innerHTML = html;
+    schemaEmpty.style.display = 'none';
+    schemaFields.style.display = 'block';
+  }
+
+  function renderFieldRow(f) {
+    const typeClass = 'type-' + f.type;
+    return '<div class="schema-field">' +
+      '<span class="field-type-badge ' + typeClass + '">' + f.type + '</span>' +
+      '<div class="field-info">' +
+      '<div class="field-name">' + f.key + '</div>' +
+      '<div class="field-value">' + escHtml(f.display) + '</div>' +
+      '</div>' +
+      '<div class="field-required ' + (f.required ? 'req-yes' : 'req-no') + '" title="' + (f.required ? '必填' : '可选') + '"></div>' +
+      '</div>';
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // =========================================================
+  // RENDER COMPAT SCORES
+  // =========================================================
+  function renderCompat(sourcePlatform) {
+    const scores = {
+      openai: 95, anthropic: 82, langchain: 88, autogen: 76,
+      crewai: 70, dify: 65, coze: 60, flowise: 58
+    };
+    // Boost target
+    if (state.targetPlatform && scores[state.targetPlatform]) {
+      scores[state.targetPlatform] = Math.min(scores[state.targetPlatform] + 10, 99);
+    }
+
+    let html = '';
+    for (const [plat, score] of Object.entries(scores)) {
+      const p = PLATFORMS[plat];
+      if (!p) continue;
+      const cls = score >= 80 ? 'fill-high' : score >= 60 ? 'fill-mid' : 'fill-low';
+      html += '<div class="compat-item">' +
+        '<span class="compat-platform-name">' + p.emoji + ' ' + p.name + '</span>' +
+        '<div class="compat-track"><div class="compat-fill ' + cls + '" data-width="' + score + '" style="width:0%"></div></div>' +
+        '<span class="compat-score">' + score + '%</span>' +
+        '</div>';
+    }
+    compatList.innerHTML = html;
+    compatSection.style.display = 'block';
+
+    // Animate bars
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.compat-fill[data-width]').forEach(bar => {
+        const w = bar.getAttribute('data-width');
+        setTimeout(() => { bar.style.width = w + '%'; }, 100);
+      });
+    });
+  }
+
+  // =========================================================
+  // CONVERT CONFIG
+  // =========================================================
+  function convertConfig(sourceObj, targetPlatform) {
+    const conversions = {
+      openai: () => ({
+        model: sourceObj.model || 'gpt-4o',
+        messages: sourceObj.messages || [{ role: 'system', content: sourceObj.system_prompt || sourceObj.goal || 'You are a helpful assistant.' }],
+        temperature: sourceObj.temperature || 0.7,
+        max_tokens: sourceObj.max_tokens || 2048,
+        tools: (sourceObj.tools || []).map(t => ({ type: 'function', function: { name: t.name || t.func || 'tool', description: t.description || '', parameters: { type: 'object', properties: {}, required: [] } } })),
+        stream: sourceObj.stream !== undefined ? sourceObj.stream : false
+      }),
+      anthropic: () => ({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: sourceObj.max_tokens || 4096,
+        system: sourceObj.system_prompt || (sourceObj.messages && sourceObj.messages[0] && sourceObj.messages[0].role === 'system' ? sourceObj.messages[0].content : 'You are Claude.'),
+        messages: (sourceObj.messages || []).filter(m => m.role !== 'system'),
+        tools: (sourceObj.tools || []).map(t => ({ name: t.name || t.func || 'tool', description: t.description || '', input_schema: { type: 'object', properties: {}, required: [] } })),
+        temperature: sourceObj.temperature || 1.0
+      }),
+      langchain: () => ({
+        _type: 'agent',
+        agent_type: 'openai-functions',
+        llm: { _type: 'openai-chat', model_name: sourceObj.model || 'gpt-4', temperature: sourceObj.temperature || 0 },
+        tools: (sourceObj.tools || []).map(t => ({ name: t.name || t.func || 'tool', description: t.description || '', func: t.func || t.name || 'tool_fn' })),
+        memory: { _type: 'conversation_buffer', return_messages: true, memory_key: 'chat_history' },
+        verbose: true,
+        max_iterations: sourceObj.max_iterations || 15,
+        handle_parsing_errors: true
+      }),
+      autogen: () => ({
+        agents: [
+          { name: 'AssistantAgent', type: 'AssistantAgent', llm_config: { config_list: [{ model: sourceObj.model || 'gpt-4o', api_key: 'YOUR_API_KEY' }], temperature: sourceObj.temperature || 0 }, system_message: sourceObj.system_prompt || 'You are a helpful AI assistant.' },
+          { name: 'UserProxy', type: 'UserProxyAgent', human_input_mode: 'NEVER', max_consecutive_auto_reply: 10, code_execution_config: { work_dir: 'workspace', use_docker: false } }
+        ],
+        groupchat: { agents: ['AssistantAgent', 'UserProxy'], messages: [], max_round: 20 }
+      }),
+      crewai: () => ({
+        crew_name: sourceObj.name || 'Converted Crew',
+        agents: [{ role: 'AI Assistant', goal: sourceObj.goal || 'Complete assigned tasks', backstory: sourceObj.backstory || 'Expert AI agent.', llm: sourceObj.model || 'gpt-4o', tools: (sourceObj.tools || []).map(t => t.name || t.func || 'tool'), verbose: true }],
+        tasks: [{ description: sourceObj.task || 'Execute the main objective', expected_output: 'Detailed results', agent: 'AI Assistant' }],
+        process: 'sequential',
+        verbose: true,
+        memory: false,
+        cache: true
+      }),
+      dify: () => ({
+        app_id: 'app-' + Math.random().toString(36).slice(2, 10),
+        app_type: 'agent',
+        model_config: { provider: 'openai', model: sourceObj.model || 'gpt-4o', model_parameters: { temperature: sourceObj.temperature || 0.7, max_tokens: sourceObj.max_tokens || 2048 } },
+        prompt_template: sourceObj.system_prompt || 'You are a helpful assistant.',
+        tools: (sourceObj.tools || []).map(t => ({ tool_name: t.name || 'tool', tool_type: 'builtin' })),
+        agent_mode: { strategy: 'function_call', enabled: true }
+      }),
+      coze: () => ({
+        bot_id: 'bot_' + Math.random().toString(36).slice(2, 10),
+        version: '2.0',
+        name: sourceObj.name || 'Converted Bot',
+        description: sourceObj.description || 'AI Agent converted by Config Converter',
+        model: { name: sourceObj.model || 'gpt-4o', temperature: sourceObj.temperature || 0.7 },
+        prompt: { prologue: sourceObj.system_prompt || 'You are a helpful assistant.' },
+        plugins: (sourceObj.tools || []).map(t => ({ plugin_id: 'plugin_' + (t.name || 'tool'), name: t.name || 'tool' }))
+      }),
+      flowise: () => ({
+        chatflow_id: 'cf-' + Math.random().toString(36).slice(2, 12),
+        name: sourceObj.name || 'Converted Chatflow',
+        nodes: [
+          { id: 'chatOpenAI_0', type: 'customNode', data: { id: 'chatOpenAI_0', label: 'ChatOpenAI', name: 'chatOpenAI', inputs: { modelName: sourceObj.model || 'gpt-4o', temperature: sourceObj.temperature || 0.7 } } },
+          { id: 'conversationChain_0', type: 'customNode', data: { id: 'conversationChain_0', label: 'Conversation Chain', name: 'conversationChain', inputs: { systemMessagePrompt: sourceObj.system_prompt || '' } } }
+        ],
+        edges: [{ source: 'chatOpenAI_0', target: 'conversationChain_0' }]
+      })
+    };
+
+    const fn = conversions[targetPlatform] || conversions.openai;
+    return fn();
+  }
+
+  // =========================================================
+  // PROCESS INPUT
+  // =========================================================
+  function processInput(text) {
+    if (!text.trim()) return;
+    state.inputText = text;
+
+    // Show editor
+    dropZone.style.display = 'none';
+    editorArea.classList.remove('input-hidden');
+    editorArea.classList.add('input-shown');
+    codeEditor.value = text;
+
+    // Update line count
+    updateLineCount(text);
+
+    // Show loading
+    inputLoading.style.display = 'flex';
+    setStep(2);
+
+    setTimeout(() => {
+      inputLoading.style.display = 'none';
+
+      // Validate JSON
+      let parsed = null;
+      let valid = false;
+      try {
+        parsed = JSON.parse(text);
+        valid = true;
+      } catch (e) {
+        // Try YAML-like
+        valid = false;
+      }
+
+      state.isValid = valid;
+      state.parsedConfig = parsed;
+
+      // Update syntax indicator
+      if (valid) {
+        syntaxDot.className = 'status-dot status-valid';
+        syntaxLabel.textContent = 'JSON 有效';
+        syntaxLabel.style.color = 'var(--green-success)';
+        inputFormatTag.textContent = 'JSON';
+        inputFormatTag.style.display = 'inline-block';
+      } else {
+        syntaxDot.className = 'status-dot status-invalid';
+        syntaxLabel.textContent = 'JSON 语法错误';
+        syntaxLabel.style.color = 'var(--red-danger)';
+      }
+
+      if (valid && parsed) {
+        // Detect platform
+        const result = detectPlatform(text);
+        if (result) {
+          state.detectedPlatform = result.platform;
+          const p = PLATFORMS[result.platform];
+
+          detectedEmoji.textContent = p.emoji;
+          detectedName.textContent = p.name + ' 格式';
+          detectedSub.textContent = p.version + ' · 自动识别';
+          confidenceFill.style.width = result.confidence + '%';
+          confidenceText.textContent = result.confidence + '%';
+          detectedBanner.classList.remove('hidden');
+
+          setStep(3);
+          setTimeout(() => {
+            renderSchema(parsed);
+            renderCompat(result.platform);
+            setStep(4);
+          }, 400);
+        }
+      }
+    }, 800);
+  }
+
+  function updateLineCount(text) {
+    const lines = text.split('\n').length;
+    const chars = text.length;
+    lineCount.textContent = lines + ' 行 · ' + chars + ' 字符';
+  }
+
+  // =========================================================
+  // DRAG & DROP
+  // =========================================================
+  dropZone.addEventListener('click', () => fileInput.click());
+
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('drag-over');
+  });
+
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) readFile(file);
+  });
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) readFile(e.target.files[0]);
+  });
+
+  function readFile(file) {
+    const reader = new FileReader();
+    reader.onload = ev => processInput(ev.target.result);
+    reader.readAsText(file);
+    showToast('正在读取文件: ' + file.name, 'info');
+  }
+
+  // =========================================================
+  // PASTE BUTTON
+  // =========================================================
+  document.getElementById('pasteBtn').addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        processInput(text);
+        showToast('已从剪贴板粘贴内容', 'success');
+      }
+    } catch (e) {
+      showToast('无法访问剪贴板，请手动粘贴', 'error');
+    }
+  });
+
+  // =========================================================
+  // CLEAR INPUT
+  // =========================================================
+  document.getElementById('clearInputBtn').addEventListener('click', () => {
+    state.inputText = '';
+    state.parsedConfig = null;
+    state.detectedPlatform = null;
+    state.outputText = '';
+
+    codeEditor.value = '';
+    dropZone.style.display = 'flex';
+    editorArea.classList.add('input-hidden');
+    editorArea.classList.remove('input-shown');
+    detectedBanner.classList.add('hidden');
+    inputFormatTag.style.display = 'none';
+
+    schemaEmpty.style.display = 'flex';
+    schemaFields.style.display = 'none';
+    compatSection.style.display = 'none';
+    fieldCount.textContent = '0 字段';
+
+    outputEmpty.style.display = 'flex';
+    outputContent.style.display = 'none';
+    outputStats.style.display = 'none';
+    copyOutputBtn.style.display = 'none';
+    expandOutputBtn.style.display = 'none';
+    outputPlatformTag.style.display = 'none';
+
+    setStep(1);
+    showToast('已清除所有内容', 'info');
+  });
+
+  // =========================================================
+  // CODE EDITOR INPUT
+  // =========================================================
+  let editorDebounce = null;
+  codeEditor.addEventListener('input', () => {
+    const text = codeEditor.value;
+    updateLineCount(text);
+    clearTimeout(editorDebounce);
+    editorDebounce = setTimeout(() => {
+      if (text.trim()) {
+        processInput(text);
+      }
+    }, 900);
+  });
+
+  // =========================================================
+  // PLATFORM SELECTOR (footer)
+  // =========================================================
+  document.querySelectorAll('.platform-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.platform-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      state.targetPlatform = btn.getAttribute('data-platform');
+      const p = PLATFORMS[state.targetPlatform];
+      showToast('目标平台已选: ' + p.emoji + ' ' + p.name, 'info', 2000);
+      if (state.parsedConfig) renderCompat(state.detectedPlatform);
+    });
+  });
+
+  // =========================================================
+  // CHANGE SOURCE BUTTON
+  // =========================================================
+  document.getElementById('changeSourceBtn').addEventListener('click', () => {
+    document.getElementById('clearInputBtn').click();
+  });
+
+  // =========================================================
+  // LOAD SAMPLE
+  // =========================================================
+  document.getElementById('loadSampleBtn').addEventListener('click', () => {
+    const samples = Object.keys(SAMPLE_CONFIGS);
+    const rand = samples[Math.floor(Math.random() * samples.length)];
+    const sample = SAMPLE_CONFIGS[rand];
+    processInput(JSON.stringify(sample, null, 2));
+    showToast('已加载 ' + PLATFORMS[rand].name + ' 示例配置', 'success');
+  });
+
+  // =========================================================
+  // VALIDATE
+  // =========================================================
+  document.getElementById('validateBtn').addEventListener('click', () => {
+    if (!state.inputText.trim()) {
+      showToast('请先输入配置内容', 'error');
+      return;
+    }
+    try {
+      JSON.parse(state.inputText);
+      showToast('✅ JSON 格式验证通过，配置结构正常', 'success', 4000);
+    } catch (e) {
+      showToast('❌ JSON 语法错误: ' + e.message, 'error', 5000);
+    }
+  });
+
+  // =========================================================
+  // PREVIEW
+  // =========================================================
+  document.getElementById('previewBtn').addEventListener('click', () => {
+    if (!state.parsedConfig) {
+      showToast('请先输入有效的 Agent 配置', 'error');
+      return;
+    }
+    if (!state.targetPlatform) {
+      showToast('请先选择目标平台', 'error');
+      return;
+    }
+    doConvert(true);
+  });
+
+  // =========================================================
+  // CONVERT
+  // =========================================================
+  document.getElementById('convertBtn').addEventListener('click', () => {
+    if (!state.parsedConfig) {
+      showToast('请先输入有效的 Agent 配置', 'error');
+      return;
+    }
+    if (!state.targetPlatform) {
+      showToast('请先在下方选择目标平台', 'error');
+      return;
+    }
+    doConvert(false);
+  });
+
+  function doConvert(isPreview) {
+    const start = Date.now();
+    outputLoading.style.display = 'flex';
+    outputEmpty.style.display = 'none';
+    outputContent.style.display = 'none';
+    outputStats.style.display = 'none';
+    setStep(5);
+
+    setTimeout(() => {
+      const converted = convertConfig(state.parsedConfig, state.targetPlatform);
+      state.outputText = JSON.stringify(converted, null, 2);
+      const elapsed = Date.now() - start;
+
+      outputLoading.style.display = 'none';
+      outputContent.innerHTML = '<pre>' + syntaxHighlight(state.outputText) + '</pre>';
+      outputContent.style.display = 'block';
+      outputContent.classList.add('fade-in');
+      outputStats.style.display = 'flex';
+
+      const p = PLATFORMS[state.targetPlatform];
+      outputPlatformTag.textContent = p.emoji + ' ' + p.name;
+      outputPlatformTag.style.display = 'inline-block';
+      copyOutputBtn.style.display = 'flex';
+      expandOutputBtn.style.display = 'flex';
+
+      // Stats
+      const fieldCount = Object.keys(converted).length;
+      const size = new Blob([state.outputText]).size;
+      document.getElementById('outFieldCount').textContent = fieldCount;
+      document.getElementById('outSize').textContent = size < 1024 ? size + ' B' : (size / 1024).toFixed(1) + ' KB';
+      document.getElementById('outCompat').textContent = '92%';
+      document.getElementById('outTime').textContent = elapsed + 'ms';
+
+      showToast((isPreview ? '预览' : '转换') + '完成 → ' + p.name + ' 格式', 'success');
+    }, isPreview ? 500 : 1200);
+  }
+
+  // =========================================================
+  // COPY OUTPUT
+  // =========================================================
+  copyOutputBtn.addEventListener('click', () => {
+    if (state.outputText) {
+      navigator.clipboard.writeText(state.outputText).then(() => {
+        showToast('已复制到剪贴板', 'success');
+      }).catch(() => {
+        showToast('复制失败，请手动选择文本', 'error');
+      });
+    }
+  });
+
+  // =========================================================
+  // DOWNLOAD FILE
+  // =========================================================
+  document.getElementById('downloadBtn').addEventListener('click', () => {
+    if (!state.outputText) {
+      showToast('请先执行转换操作', 'error');
+      return;
+    }
+    const p = PLATFORMS[state.targetPlatform];
+    const filename = 'agent-config-' + state.targetPlatform + '.json';
+    const blob = new Blob([state.outputText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('已下载: ' + filename, 'success');
+  });
+
+  // =========================================================
+  // DOWNLOAD BUNDLE ZIP (simulated)
+  // =========================================================
+  document.getElementById('downloadBundleBtn').addEventListener('click', () => {
+    if (!state.outputText) {
+      showToast('请先执行转换操作', 'error');
+      return;
+    }
+    // Simulate bundle creation
+    const allFormats = ['openai', 'anthropic', 'langchain', 'autogen', 'crewai'];
+    let bundleContent = '# Agent Config Bundle\n# 生成时间: ' + new Date().toLocaleString() + '\n\n';
+
+    for (const plat of allFormats) {
+      const converted = convertConfig(state.parsedConfig, plat);
+      bundleContent += '// === ' + PLATFORMS[plat].name + ' ===\n';
+      bundleContent += JSON.stringify(converted, null, 2) + '\n\n';
+    }
+
+    const blob = new Blob([bundleContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'agent-config-bundle.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Bundle 已下载（含 5 个平台格式）', 'success', 4000);
+  });
+
+  // =========================================================
+  // FULLSCREEN OUTPUT
+  // =========================================================
+  expandOutputBtn.addEventListener('click', () => {
+    document.getElementById('fullscreenContent').innerHTML = '<pre>' + syntaxHighlight(state.outputText) + '</pre>';
+    document.getElementById('fullscreenModal').classList.add('open');
+    lucide.createIcons();
+  });
+
+  document.getElementById('closeFullscreen').addEventListener('click', () => {
+    document.getElementById('fullscreenModal').classList.remove('open');
+  });
+
+  document.getElementById('closeFullscreen2').addEventListener('click', () => {
+    document.getElementById('fullscreenModal').classList.remove('open');
+  });
+
+  document.getElementById('copyFullscreen').addEventListener('click', () => {
+    navigator.clipboard.writeText(state.outputText).then(() => {
+      showToast('已复制全部内容', 'success');
+    });
+  });
+
+  // =========================================================
+  // MODAL (platform grid)
+  // =========================================================
+  const platformModal = document.getElementById('platformModal');
+  const modalGrid = document.getElementById('modalPlatformGrid');
+
+  function buildModalGrid() {
+    let html = '';
+    for (const [key, p] of Object.entries(PLATFORMS)) {
+      const isSel = state.targetPlatform === key;
+      html += '<div class="platform-card ' + (isSel ? 'sel' : '') + '" data-plat="' + key + '">' +
+        '<span class="emoji">' + p.emoji + '</span>' +
+        '<div class="name">' + p.name + '</div>' +
+        '<div class="ver">' + p.version + '</div>' +
+        '</div>';
+    }
+    modalGrid.innerHTML = html;
+
+    modalGrid.querySelectorAll('.platform-card').forEach(card => {
+      card.addEventListener('click', () => {
+        modalGrid.querySelectorAll('.platform-card').forEach(c => c.classList.remove('sel'));
+        card.classList.add('sel');
+        state.targetPlatform = card.getAttribute('data-plat');
+      });
+    });
+  }
+
+  document.getElementById('closeModal').addEventListener('click', () => platformModal.classList.remove('open'));
+  document.getElementById('cancelModal').addEventListener('click', () => platformModal.classList.remove('open'));
+  document.getElementById('confirmModal').addEventListener('click', () => {
+    platformModal.classList.remove('open');
+    if (state.targetPlatform) {
+      // Sync footer buttons
+      document.querySelectorAll('.platform-btn').forEach(b => b.classList.remove('selected'));
+      const btn = document.querySelector('.platform-btn[data-platform="' + state.targetPlatform + '"]');
+      if (btn) btn.classList.add('selected');
+      showToast('目标平台已选: ' + PLATFORMS[state.targetPlatform].name, 'success', 2000);
+    }
+  });
+
+  // =========================================================
+  // FULLSCREEN MODAL CLOSE ON OVERLAY CLICK
+  // =========================================================
+  document.getElementById('fullscreenModal').addEventListener('click', function(e) {
+    if (e.target === this) this.classList.remove('open');
+  });
+  platformModal.addEventListener('click', function(e) {
+    if (e.target === this) this.classList.remove('open');
+  });
+
+  // =========================================================
+  // HELP / SETTINGS (placeholder)
+  // =========================================================
+  document.getElementById('helpBtn').addEventListener('click', () => {
+    showToast('📖 支持 12 个 AI 平台格式转换 · 拖拽上传 · 粘贴 · 一键转换', 'info', 4000);
+  });
+
+  document.getElementById('settingsBtn').addEventListener('click', () => {
+    buildModalGrid();
+    platformModal.classList.add('open');
+    lucide.createIcons();
+  });
+
+  // =========================================================
+  // KEYBOARD SHORTCUT: Ctrl+Enter to convert
+  // =========================================================
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      document.getElementById('convertBtn').click();
+    }
+    if (e.key === 'Escape') {
+      document.getElementById('fullscreenModal').classList.remove('open');
+      platformModal.classList.remove('open');
+    }
+  });
+
+  // =========================================================
+  // INITIAL LOAD: Auto-load a sample to demonstrate
+  // =========================================================
+  setTimeout(() => {
+    const sample = SAMPLE_CONFIGS.openai;
+    processInput(JSON.stringify(sample, null, 2));
+
+    // Auto-select openai target
+    setTimeout(() => {
+      const firstBtn = document.querySelector('.platform-btn[data-platform="langchain"]');
+      if (firstBtn) {
+        firstBtn.classList.add('selected');
+        state.targetPlatform = 'langchain';
+      }
+    }, 1500);
+  }, 600);
+
+  // Init icons
+  lucide.createIcons();
+});
+</script>
+
+<script>
+// Re-init icons after dynamic content
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(() => lucide.createIcons(), 200);
+  setTimeout(() => lucide.createIcons(), 1000);
+  setTimeout(() => lucide.createIcons(), 2000);
+});
+</script>
+
+</body>
+</html>

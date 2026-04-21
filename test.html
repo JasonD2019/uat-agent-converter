@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UAT 功能验证测试</title>
+  <style>
+    body { font-family: monospace; background: #1a1a2e; color: #eee; padding: 20px; }
+    .test-section { margin: 20px 0; padding: 15px; border: 1px solid #333; border-radius: 8px; }
+    .success { color: #10b981; }
+    .error { color: #ef4444; }
+    .info { color: #94a3b8; }
+    pre { background: #0f172a; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>UAT 功能验证测试</h1>
+  <div id="testResults"></div>
+
+  <!-- 加载所有模块 -->
+  <script src="src/core/schema.js"></script>
+  <script src="src/input/input-utils.js"></script>
+  <script src="src/detector/platform-detector.js"></script>
+  <script src="src/parser/parser-pool.js"></script>
+  <script src="src/encoder/encoder-pool.js"></script>
+  <script src="src/export/export-utils.js"></script>
+  <script src="src/guard/guard.js"></script>
+
+  <script>
+    const results = document.getElementById('testResults');
+    const logs = [];
+
+    function log(msg, type = 'info') {
+      logs.push(`<div class="${type}">${msg}</div>`);
+    }
+
+    function assert(condition, msg) {
+      if (condition) {
+        log(`✓ ${msg}`, 'success');
+        return true;
+      } else {
+        log(`✗ ${msg}`, 'error');
+        return false;
+      }
+    }
+
+    // 测试1：模块加载验证
+    function testModuleLoading() {
+      log('\n=== 测试1：模块加载验证 ===');
+      assert(window.UATCore, 'UATCore 模块已加载');
+      assert(window.UATInput, 'UATInput 模块已加载');
+      assert(window.UATDetector, 'UATDetector 模块已加载');
+      assert(window.UATParser, 'UATParser 模块已加载');
+      assert(window.UATEncoder, 'UATEncoder 模块已加载');
+      assert(window.UATExport, 'UATExport 模块已加载');
+      assert(window.UATGuard, 'UATGuard 模块已加载');
+    }
+
+    // 测试2：Schema 核心功能
+    function testSchemaCore() {
+      log('\n=== 测试2：Schema 核心功能 ===');
+      const schema = UATCore.createEmptyUATSchema();
+      assert(schema, '创建空白 Schema 成功');
+      assert(schema.meta, 'Schema 包含 meta 层');
+      assert(schema.identity, 'Schema 包含 identity 层');
+      assert(schema.tools, 'Schema 包含 tools 层');
+      assert(schema.workflow, 'Schema 包含 workflow 层');
+      assert(schema.memory, 'Schema 包含 memory 层');
+      assert(schema.modelConfig, 'Schema 包含 modelConfig 层');
+
+      UATCore.fillSchemaDefaultValues(schema);
+      assert(UATCore.checkSchemaValid(schema), 'Schema 校验通过');
+    }
+
+    // 测试3：平台检测
+    function testPlatformDetection() {
+      log('\n=== 测试3：平台检测 ===');
+
+      // Dify 测试
+      const difyText = 'dify_version: "0.1"\napp:\n  name: "Test"';
+      assert(UATDetector.detectPlatform(difyText) === 'dify', '检测 Dify 格式');
+
+      // OpenClaw 测试
+      const openclawText = '# Identity\nName: Test Agent\n# Soul\n# Skills';
+      assert(UATDetector.detectPlatform(openclawText) === 'openclaw', '检测 OpenClaw 格式');
+
+      // Claude 测试
+      const claudeText = '---\nname: "Test"\n---\n# Instructions';
+      assert(UATDetector.detectPlatform(claudeText) === 'claude', '检测 Claude 格式');
+
+      // FastGPT 测试
+      const fastgptText = '{"appConfig": {"name": "Test"}, "chatConfig": {}}';
+      assert(UATDetector.detectPlatform(fastgptText) === 'fastgpt', '检测 FastGPT 格式');
+
+      // Flowise 测试
+      const flowiseText = '{"name": "Test Flow", "nodes": [], "edges": []}';
+      assert(UATDetector.detectPlatform(flowiseText) === 'flowise', '检测 Flowise 格式');
+
+      // 通用文本测试
+      const plainText = 'This is a plain text prompt.';
+      assert(UATDetector.detectPlatform(plainText) === 'plain', '检测通用文本格式');
+    }
+
+    // 测试4：解析器功能
+    function testParserPool() {
+      log('\n=== 测试4：解析器功能 ===');
+
+      // 测试纯文本解析
+      const plainText = 'You are a helpful assistant.';
+      const schema = UATParser.runParserPool(plainText, 'plain');
+      assert(schema, '纯文本解析成功');
+      assert(schema.identity.systemPrompt === plainText, '系统提示词提取正确');
+
+      // 测试 JSON 格式解析
+      const fastgptText = '{"appConfig": {"name": "Test Agent"}, "chatConfig": {"systemPrompt": "Hello"}}';
+      const schema2 = UATParser.runParserPool(fastgptText, 'fastgpt');
+      assert(schema2.meta.name === 'Test Agent', 'FastGPT 名称提取正确');
+      assert(schema2.identity.systemPrompt === 'Hello', 'FastGPT 系统提示词提取正确');
+
+      // 测试 Dify 解析
+      const difyText = 'dify_version: "0.1"\napp:\n  name: "Dify Agent"';
+      const schema3 = UATParser.runParserPool(difyText, 'dify');
+      assert(schema3.meta.name === 'Dify Agent', 'Dify 名称提取正确');
+    }
+
+    // 测试5：编码器功能
+    function testEncoderPool() {
+      log('\n=== 测试5：编码器功能 ===');
+
+      // 创建测试 Schema
+      const schema = UATCore.createEmptyUATSchema();
+      schema.meta.name = 'Test Agent';
+      schema.meta.description = 'Test Description';
+      schema.identity.systemPrompt = 'You are a helpful assistant.';
+      UATCore.fillSchemaDefaultValues(schema);
+
+      // 测试 Dify 编码
+      const difyOutput = UATEncoder.runEncoderPool(schema, 'dify');
+      assert(difyOutput.includes('dify_version'), 'Dify 编码包含版本头');
+      assert(difyOutput.includes('Test Agent'), 'Dify 编码包含名称');
+
+      // 测试 OpenClaw 编码
+      const openclawOutput = UATEncoder.runEncoderPool(schema, 'openclaw');
+      assert(openclawOutput.includes('# Identity'), 'OpenClaw 编码包含 Identity 块');
+      assert(openclawOutput.includes('# Soul'), 'OpenClaw 编码包含 Soul 块');
+
+      // 测试 Claude 编码
+      const claudeOutput = UATEncoder.runEncoderPool(schema, 'claude');
+      assert(claudeOutput.includes('---'), 'Claude 编码包含 YAML 头');
+      assert(claudeOutput.includes('# Instructions'), 'Claude 编码包含指令块');
+
+      // 测试 FastGPT 编码
+      const fastgptOutput = UATEncoder.runEncoderPool(schema, 'fastgpt');
+      assert(fastgptOutput.includes('"appConfig"'), 'FastGPT 编码包含 appConfig');
+
+      // 测试 Flowise 编码
+      const flowiseOutput = UATEncoder.runEncoderPool(schema, 'flowise');
+      assert(flowiseOutput.includes('"nodes"'), 'Flowise 编码包含 nodes 数组');
+
+      // 测试纯文本编码
+      const plainOutput = UATEncoder.runEncoderPool(schema, 'plain');
+      assert(plainOutput.includes('You are a helpful assistant'), '纯文本编码包含系统提示词');
+    }
+
+    // 测试6：完整转换链路
+    function testFullPipeline() {
+      log('\n=== 测试6：完整转换链路 ===');
+
+      // 输入 → 解析 → 编码 → 输出
+      const input = '{"appConfig": {"name": "Pipeline Test"}, "chatConfig": {"systemPrompt": "Test prompt"}}';
+
+      // 检测平台
+      const platform = UATDetector.detectPlatform(input);
+      assert(platform === 'fastgpt', '平台检测: FastGPT');
+
+      // 解析
+      const schema = UATParser.runParserPool(input, platform);
+      assert(schema.meta.name === 'Pipeline Test', '解析: 名称提取成功');
+
+      // 编码到 Dify
+      const output = UATEncoder.runEncoderPool(schema, 'dify');
+      assert(output.includes('dify_version'), '编码: Dify 输出成功');
+      assert(output.includes('Pipeline Test'), '编码: 名称保留正确');
+
+      log('\n完整链路: FastGPT → Schema → Dify 转换成功!', 'success');
+    }
+
+    // 测试7：安全模块
+    function testGuardModule() {
+      log('\n=== 测试7：安全模块 ===');
+
+      // 测试敏感内容检测
+      const sensitiveText = 'api_key: sk-abc123def456ghi789jkl012mno345pqr678';
+      const cleaned = UATGuard.guardCheckSensitiveContent(sensitiveText);
+      assert(cleaned.includes('***REDACTED***'), '敏感内容已过滤');
+
+      // 测试安全执行包装器
+      const result = UATGuard.safeExecute(() => 42, 'Test context');
+      assert(result === 42, '安全执行包装器正常工作');
+
+      // 测试异常兜底
+      const fallbackResult = UATGuard.safeExecute(() => { throw new Error('Test'); }, 'Test', () => 'fallback');
+      assert(fallbackResult === 'fallback', '异常兜底正常工作');
+    }
+
+    // 运行所有测试
+    function runAllTests() {
+      try {
+        testModuleLoading();
+        testSchemaCore();
+        testPlatformDetection();
+        testParserPool();
+        testEncoderPool();
+        testFullPipeline();
+        testGuardModule();
+
+        log('\n=== 所有测试完成 ===', 'success');
+        results.innerHTML = logs.join('');
+      } catch (error) {
+        log(`测试执行异常: ${error.message}`, 'error');
+        results.innerHTML = logs.join('');
+      }
+    }
+
+    // 页面加载后运行测试
+    window.addEventListener('DOMContentLoaded', runAllTests);
+  </script>
+</body>
+</html>

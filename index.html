@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UAT - Agent Config Converter</title>
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- JSZip for Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- App Container -->
+  <div class="app-container">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo-mark">
+          <i data-lucide="zap" style="width:18px;height:18px;"></i>
+        </div>
+        <div class="header-info">
+          <h1 class="header-title" data-i18n="title">UAT Agent Converter</h1>
+          <span class="header-subtitle" data-i18n="subtitle">Cross-Platform AI Agent Config Converter</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="badge-secure">
+          <span class="dot"></span>
+          <span data-i18n="badge">Local · Offline · Secure</span>
+        </div>
+        <span class="header-meta" data-i18n="platformCount">12 Platforms</span>
+        <button class="icon-btn" id="helpBtn" title="Help">
+          <i data-lucide="help-circle" style="width:14px;height:14px;"></i>
+        </button>
+        <button class="icon-btn" id="langToggle" title="Language">
+          <span class="lang-text">中文</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Steps Bar -->
+    <div class="steps-bar">
+      <div class="step-item active" id="step1">
+        <div class="step-num">1</div>
+        <div class="step-label" data-i18n="step1">Upload ZIP</div>
+      </div>
+      <div class="step-line" id="line1"></div>
+      <div class="step-item" id="step2">
+        <div class="step-num">2</div>
+        <div class="step-label" data-i18n="step2">Parse Files</div>
+      </div>
+      <div class="step-line" id="line2"></div>
+      <div class="step-item" id="step3">
+        <div class="step-num">3</div>
+        <div class="step-label" data-i18n="step3">Generate Schema</div>
+      </div>
+      <div class="step-line" id="line3"></div>
+      <div class="step-item" id="step4">
+        <div class="step-num">4</div>
+        <div class="step-label" data-i18n="step4">Select Target</div>
+      </div>
+      <div class="step-line" id="line4"></div>
+      <div class="step-item" id="step5">
+        <div class="step-num">5</div>
+        <div class="step-label" data-i18n="step5">Export</div>
+      </div>
+      <div style="flex:1;"></div>
+      <span class="step-hint" id="stepHint" data-i18n="stepHintUpload">Upload Agent Bundle ZIP to start</span>
+    </div>
+
+    <!-- Main Content - Three Columns -->
+    <main class="main-content">
+      <div class="three-col">
+
+        <!-- Left Panel: Input -->
+        <section class="panel" id="inputPanel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <div class="panel-title-icon icon-blue">
+                <i data-lucide="folder-open" style="width:14px;height:14px;"></i>
+              </div>
+              <span data-i18n="inputTitle">Source Files</span>
+            </div>
+            <div class="panel-actions">
+              <span class="platform-selector-tag" id="inputPlatformTag" style="display:none;">
+                <span class="platform-name">-</span>
+                <i data-lucide="chevron-down" style="width:12px;height:12px;"></i>
+                <div class="platform-dropdown" id="inputPlatformDropdown">
+                  <div class="platform-option" data-platform="openclaw">🦾 OpenClaw</div>
+                  <div class="platform-option" data-platform="hermes">🤖 Hermes</div>
+                  <div class="platform-option" data-platform="dify">💡 Dify</div>
+                  <div class="platform-option" data-platform="fastgpt">⚡ FastGPT</div>
+                  <div class="platform-option" data-platform="flowise">🔗 Flowise</div>
+                  <div class="platform-option" data-platform="cursor">🔵 Cursor</div>
+                  <div class="platform-option" data-platform="windsurf">🌊 Windsurf</div>
+                  <div class="platform-option" data-platform="claude">💜 Claude</div>
+                  <div class="platform-option" data-platform="codex">🟠 Codex</div>
+                  <div class="platform-option" data-platform="copilot">🟩 Copilot</div>
+                  <div class="platform-option" data-platform="zed">🔷 Zed</div>
+                </div>
+              </span>
+              <span class="file-count" id="inputFileCount" style="display:none;">0 files</span>
+              <button class="icon-btn" id="uploadBtn" title="Upload">
+                <i data-lucide="upload" style="width:13px;height:13px;"></i>
+              </button>
+              <button class="icon-btn" id="clearInputBtn" title="Clear">
+                <i data-lucide="x" style="width:13px;height:13px;"></i>
+              </button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <!-- Drop Zone -->
+            <div class="drop-zone" id="dropZone">
+              <div class="drop-icon">
+                <i data-lucide="upload-cloud" style="width:26px;height:26px;"></i>
+              </div>
+              <div class="drop-title" data-i18n="dropzoneText">Drag ZIP or click to upload</div>
+              <div class="drop-hint" data-i18n="dropzoneHint">Supports .zip, .uat Bundle files</div>
+              <input type="file" id="fileInput" accept=".zip,.uat" hidden>
+            </div>
+
+            <!-- File List + Editor -->
+            <div class="file-viewer" id="inputViewer" style="display:none;">
+              <div class="file-list-sidebar" id="inputFileList"></div>
+              <div class="file-content-area">
+                <div class="editor-toolbar">
+                  <span class="file-name" id="inputFileName">-</span>
+                  <span class="line-count" id="inputLineCount">0 lines</span>
+                </div>
+                <textarea class="code-editor" id="inputArea" placeholder="File content..." readonly></textarea>
+              </div>
+            </div>
+
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="inputLoading" style="display:none;">
+              <div class="spinner"></div>
+              <div class="loading-text">Parsing Bundle<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Middle Panel: Schema -->
+        <section class="panel" id="schemaPanel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <div class="panel-title-icon icon-purple">
+                <i data-lucide="layers" style="width:14px;height:14px;"></i>
+              </div>
+              <span data-i18n="schemaTitle">UAT Schema</span>
+            </div>
+            <div class="panel-actions">
+              <span class="field-count" id="fieldCount">0 fields</span>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="schema-empty" id="schemaEmpty">
+              <i data-lucide="file-json" style="width:36px;height:36px;opacity:0.3;"></i>
+              <div data-i18n="schemaEmptyTitle">Schema Pending</div>
+              <div data-i18n="schemaEmptyHint">Parse Bundle to generate schema</div>
+            </div>
+            <pre class="code-display" id="schemaPreview" style="display:none;"></pre>
+          </div>
+                  </section>
+
+        <!-- Right Panel: Output -->
+        <section class="panel" id="outputPanel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <div class="panel-title-icon icon-green">
+                <i data-lucide="file-check" style="width:14px;height:14px;"></i>
+              </div>
+              <span data-i18n="outputTitle">Output Files</span>
+            </div>
+            <div class="panel-actions">
+              <span class="platform-tag" id="outputPlatformTag" style="display:none;">-</span>
+              <button class="icon-btn" id="copyOutputBtn" title="Copy" style="display:none;">
+                <i data-lucide="copy" style="width:13px;height:13px;"></i>
+              </button>
+              <button class="icon-btn" id="expandOutputBtn" title="Fullscreen" style="display:none;">
+                <i data-lucide="maximize-2" style="width:13px;height:13px;"></i>
+              </button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="output-empty" id="outputEmpty">
+              <i data-lucide="arrow-right-circle" style="width:36px;height:36px;opacity:0.3;"></i>
+              <div data-i18n="outputEmptyTitle">Waiting for Conversion</div>
+              <div data-i18n="outputEmptyHint">Select target platform to convert</div>
+            </div>
+
+            <!-- File List + Preview -->
+            <div class="file-viewer" id="outputViewer" style="display:none;">
+              <div class="file-list-sidebar" id="outputFileList"></div>
+              <div class="file-content-area">
+                <div class="editor-toolbar">
+                  <span class="file-name" id="outputFileName">-</span>
+                </div>
+                <pre class="code-display" id="outputPreview"></pre>
+              </div>
+            </div>
+
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="outputLoading" style="display:none;">
+              <div class="spinner"></div>
+              <div class="loading-text">Converting<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+            </div>
+          </div>
+          <!-- Output Stats -->
+          <div class="output-stats" id="outputStats" style="display:none;">
+            <span class="stat-item"><span data-i18n="statFiles">Files:</span> <span class="stat-value" id="outFileCount">-</span></span>
+            <span class="stat-item"><span data-i18n="statSize">Size:</span> <span class="stat-value" id="outSize">-</span></span>
+            <span class="stat-item"><span data-i18n="statCompat">Compat:</span> <span class="stat-value" id="outCompat">-</span></span>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-section">
+        <div class="footer-label">
+          <i data-lucide="target" style="width:13px;height:13px;"></i>
+          <span data-i18n="targetLabel">Target</span>
+        </div>
+        <div class="platform-selector" id="platformSelector">
+          <button class="platform-btn" data-platform="dify"><span class="plat-emoji">💡</span> Dify</button>
+          <button class="platform-btn" data-platform="openclaw"><span class="plat-emoji">🦾</span> OpenClaw</button>
+          <button class="platform-btn" data-platform="claude"><span class="plat-emoji">💜</span> Claude</button>
+          <button class="platform-btn" data-platform="fastgpt"><span class="plat-emoji">⚡</span> FastGPT</button>
+          <button class="platform-btn" data-platform="cursor"><span class="plat-emoji">🔵</span> Cursor</button>
+          <button class="platform-btn" data-platform="windsurf"><span class="plat-emoji">🌊</span> Windsurf</button>
+          <button class="platform-btn" data-platform="hermes"><span class="plat-emoji">🤖</span> Hermes</button>
+          <button class="platform-btn" data-platform="flowise"><span class="plat-emoji">🔗</span> Flowise</button>
+          <button class="platform-btn" data-platform="copilot"><span class="plat-emoji">🟩</span> Copilot</button>
+          <button class="platform-btn" data-platform="codex"><span class="plat-emoji">🟠</span> Codex</button>
+          <button class="platform-btn" data-platform="zed"><span class="plat-emoji">🔷</span> Zed</button>
+        </div>
+      </div>
+      <div class="footer-divider"></div>
+      <div class="footer-actions">
+        <button class="btn btn-ghost" id="parseBtn" disabled>
+          <i data-lucide="search" style="width:13px;height:13px;"></i>
+          <span data-i18n="parseBtn">Parse</span>
+        </button>
+        <button class="btn btn-primary" id="convertBtn" disabled>
+          <i data-lucide="zap" style="width:13px;height:13px;"></i>
+          <span data-i18n="convertBtn">Convert</span>
+        </button>
+        <button class="btn btn-success" id="bundleBtn" disabled>
+          <i data-lucide="package" style="width:13px;height:13px;"></i>
+          <span data-i18n="bundleBtn">Bundle ZIP</span>
+        </button>
+        <button class="btn btn-danger" id="clearBtn">
+          <i data-lucide="trash-2" style="width:13px;height:13px;"></i>
+          <span data-i18n="clearBtn">Clear</span>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Modal: Fullscreen Preview -->
+  <div class="modal-overlay" id="fullscreenModal">
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <div class="modal-title" data-i18n="fullscreenTitle">Fullscreen Preview</div>
+        <button class="icon-btn" id="closeFullscreenBtn">
+          <i data-lucide="x" style="width:14px;height:14px;"></i>
+        </button>
+      </div>
+      <pre class="code-display modal-body" id="fullscreenContent"></pre>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="closeFullscreen2Btn" data-i18n="closeBtn">Close</button>
+        <button class="btn btn-primary" id="copyFullscreenBtn">
+          <i data-lucide="copy" style="width:13px;height:13px;"></i>
+          <span data-i18n="copyAllBtn">Copy All</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Help -->
+  <div class="modal-overlay" id="helpModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" data-i18n="helpTitle">Help Guide</div>
+        <button class="icon-btn" id="closeHelpBtn">
+          <i data-lucide="x" style="width:14px;height:14px;"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p data-i18n="helpStep1">1. Upload Agent Bundle ZIP file (supports Hermes, OpenClaw, Cursor, etc.)</p>
+        <p data-i18n="helpStep2">2. View parsed files and auto-generated Schema</p>
+        <p data-i18n="helpStep3">3. Select target platform for conversion</p>
+        <p data-i18n="helpStep4">4. Download converted config or Bundle ZIP</p>
+        <p class="help-note" data-i18n="helpNote">All processing runs locally - no data uploaded to server.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="closeHelp2Btn" data-i18n="gotItBtn">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: File Selector -->
+  <div class="modal-overlay" id="fileSelectorModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Select Source File</div>
+        <div class="modal-subtitle">for <strong id="targetTemplateName">-</strong></div>
+        <button class="icon-btn" id="closeFileSelectorBtn">
+          <i data-lucide="x" style="width:14px;height:14px;"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="file-selector-list" id="fileSelectorList">
+          <!-- Dynamic: uploaded files list -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="skipFileBtn">Skip</button>
+        <button class="btn btn-primary" id="confirmFileBtn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Core Modules -->
+  <script src="src/core/schema.js"></script>
+  <script src="src/input/input-utils.js"></script>
+  <script src="src/detector/platform-detector.js"></script>
+  <script src="src/parser/parser-pool.js"></script>
+  <script src="src/encoder/encoder-pool.js"></script>
+  <script src="src/export/export-utils.js"></script>
+  <!-- Bundle Modules -->
+  <script src="src/bundle/bundle-base.js"></script>
+  <script src="src/bundle/bundle-manager.js"></script>
+  <script src="src/bundle/hermes-bundle.js"></script>
+  <script src="src/bundle/openclaw-bundle.js"></script>
+  <script src="src/bundle/cursor-bundle.js"></script>
+  <script src="src/bundle/windsurf-bundle.js"></script>
+  <script src="src/bundle/claude-code-bundle.js"></script>
+  <script src="src/bundle/dify-bundle.js"></script>
+  <script src="src/bundle/fastgpt-bundle.js"></script>
+  <script src="src/bundle/codex-bundle.js"></script>
+  <script src="src/bundle/flowise-bundle.js"></script>
+  <script src="src/bundle/copilot-bundle.js"></script>
+  <script src="src/bundle/zed-bundle.js"></script>
+  <!-- Encoder Registry (after bundle modules) -->
+  <script src="src/encoder/encoder-registry.js"></script>
+  <!-- UI Modules -->
+  <script src="src/ui/i18n.js"></script>
+  <script src="src/ui/ui-controller.js"></script>
+  <script src="src/guard/guard.js"></script>
+</body>
+</html>
