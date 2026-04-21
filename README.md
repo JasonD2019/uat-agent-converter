@@ -14,33 +14,6 @@
 
 ---
 
-## Features
-
-- **12 Platform Support** — Convert between Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude Code, FastGPT, Flowise, Copilot, Codex, Zed, and more
-- **Bidirectional Conversion** — Parse any platform's agent bundle and convert to any other platform
-- **Bundle ZIP Support** — Upload/Download complete agent bundles with all files
-- **UAT-Schema v2.0** — Unified intermediate schema for cross-platform mapping
-- **Auto Platform Detection** — Automatically detect source platform from uploaded files
-- **Real-time Preview** — View parsed files and generated schema instantly
-- **i18n Support** — English/Chinese interface
-- **CLI & Skill Support** — Command-line tool and AI assistant skill for batch conversion
-
-## Supported Platforms
-
-| Platform | Format | Parse | Encode | Bundle |
-|----------|--------|-------|--------|--------|
-| **Dify** | YAML DSL | ✅ | ✅ | ✅ |
-| **OpenClaw** | JSON + MD | ✅ | ✅ | ✅ |
-| **Hermes** | YAML + MD | ✅ | ✅ | ✅ |
-| **Cursor** | .cursorrules | ✅ | ✅ | ✅ |
-| **Windsurf** | .windsurfrules | ✅ | ✅ | ✅ |
-| **Claude Code** | CLAUDE.md + settings | ✅ | ✅ | ✅ |
-| **FastGPT** | JSON | ✅ | ✅ | ✅ |
-| **Flowise** | JSON | ✅ | ✅ | ✅ |
-| **Copilot** | .github/copilot-instructions.md | ✅ | ✅ | ✅ |
-| **Codex** | AGENTS.md | ✅ | ✅ | ✅ |
-| **Zed** | rules.md + settings.json | ✅ | ✅ | ✅ |
-
 ## Quick Start
 
 ### To Human 🧑
@@ -91,6 +64,35 @@ For AI assistants using the Skill:
 5. Saves output files to your project
 
 **Supported Platforms**: Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude, FastGPT, Flowise, Copilot, Codex, Zed
+
+---
+
+## Features
+
+- **12 Platform Support** — Convert between Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude Code, FastGPT, Flowise, Copilot, Codex, Zed, and more
+- **Bidirectional Conversion** — Parse any platform's agent bundle and convert to any other platform
+- **Bundle ZIP Support** — Upload/Download complete agent bundles with all files
+- **UAT-Schema v2.0** — Unified intermediate schema for cross-platform mapping
+- **Auto Platform Detection** — Automatically detect source platform from uploaded files
+- **Real-time Preview** — View parsed files and generated schema instantly
+- **i18n Support** — English/Chinese interface
+- **CLI & Skill Support** — Command-line tool and AI assistant skill for batch conversion
+
+## Supported Platforms
+
+| Platform | Format | Parse | Encode | Bundle |
+|----------|--------|-------|--------|--------|
+| **Dify** | YAML DSL | ✅ | ✅ | ✅ |
+| **OpenClaw** | JSON + MD | ✅ | ✅ | ✅ |
+| **Hermes** | YAML + MD | ✅ | ✅ | ✅ |
+| **Cursor** | .cursorrules | ✅ | ✅ | ✅ |
+| **Windsurf** | .windsurfrules | ✅ | ✅ | ✅ |
+| **Claude Code** | CLAUDE.md + settings | ✅ | ✅ | ✅ |
+| **FastGPT** | JSON | ✅ | ✅ | ✅ |
+| **Flowise** | JSON | ✅ | ✅ | ✅ |
+| **Copilot** | .github/copilot-instructions.md | ✅ | ✅ | ✅ |
+| **Codex** | AGENTS.md | ✅ | ✅ | ✅ |
+| **Zed** | rules.md + settings.json | ✅ | ✅ | ✅ |
 
 ---
 

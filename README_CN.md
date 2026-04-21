@@ -15,33 +15,6 @@
 
 ---
 
-## 功能特性
-
-- **12 平台支持** — 在 Dify、OpenClaw、Hermes、Cursor、Windsurf、Claude Code、FastGPT、Flowise、Copilot、Codex、Zed 等平台间自由转换
-- **双向转换** — 解析任意平台的 Agent Bundle 并转换到其他平台
-- **Bundle ZIP 支持** — 上传/下载包含所有文件的完整 Agent Bundle
-- **UAT-Schema v2.0** — 统一的中间层 Schema 实现跨平台映射
-- **自动平台检测** — 根据上传文件自动识别源平台
-- **实时预览** — 即时查看解析文件和生成的 Schema
-- **多语言支持** — 英文/中文界面
-- **CLI & Skill 支持** — 命令行工具和 AI 助手 Skill，支持批量转换
-
-## 支持平台
-
-| 平台 | 格式 | 解析 | 编码 | Bundle |
-|------|------|------|------|--------|
-| **Dify** | YAML DSL | ✅ | ✅ | ✅ |
-| **OpenClaw** | JSON + MD | ✅ | ✅ | ✅ |
-| **Hermes** | YAML + MD | ✅ | ✅ | ✅ |
-| **Cursor** | .cursorrules | ✅ | ✅ | ✅ |
-| **Windsurf** | .windsurfrules | ✅ | ✅ | ✅ |
-| **Claude Code** | CLAUDE.md + settings | ✅ | ✅ | ✅ |
-| **FastGPT** | JSON | ✅ | ✅ | ✅ |
-| **Flowise** | JSON | ✅ | ✅ | ✅ |
-| **Copilot** | .github/copilot-instructions.md | ✅ | ✅ | ✅ |
-| **Codex** | AGENTS.md | ✅ | ✅ | ✅ |
-| **Zed** | rules.md + settings.json | ✅ | ✅ | ✅ |
-
 ## 快速开始
 
 ### To Human 🧑
@@ -92,6 +65,35 @@ AI 助手通过 Skill 自动完成转换：
 5. 保存输出文件到项目目录
 
 **支持平台**：Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude, FastGPT, Flowise, Copilot, Codex, Zed
+
+---
+
+## 功能特性
+
+- **12 平台支持** — 在 Dify、OpenClaw、Hermes、Cursor、Windsurf、Claude Code、FastGPT、Flowise、Copilot、Codex、Zed 等平台间自由转换
+- **双向转换** — 解析任意平台的 Agent Bundle 并转换到其他平台
+- **Bundle ZIP 支持** — 上传/下载包含所有文件的完整 Agent Bundle
+- **UAT-Schema v2.0** — 统一的中间层 Schema 实现跨平台映射
+- **自动平台检测** — 根据上传文件自动识别源平台
+- **实时预览** — 即时查看解析文件和生成的 Schema
+- **多语言支持** — 英文/中文界面
+- **CLI & Skill 支持** — 命令行工具和 AI 助手 Skill，支持批量转换
+
+## 支持平台
+
+| 平台 | 格式 | 解析 | 编码 | Bundle |
+|------|------|------|------|--------|
+| **Dify** | YAML DSL | ✅ | ✅ | ✅ |
+| **OpenClaw** | JSON + MD | ✅ | ✅ | ✅ |
+| **Hermes** | YAML + MD | ✅ | ✅ | ✅ |
+| **Cursor** | .cursorrules | ✅ | ✅ | ✅ |
+| **Windsurf** | .windsurfrules | ✅ | ✅ | ✅ |
+| **Claude Code** | CLAUDE.md + settings | ✅ | ✅ | ✅ |
+| **FastGPT** | JSON | ✅ | ✅ | ✅ |
+| **Flowise** | JSON | ✅ | ✅ | ✅ |
+| **Copilot** | .github/copilot-instructions.md | ✅ | ✅ | ✅ |
+| **Codex** | AGENTS.md | ✅ | ✅ | ✅ |
+| **Zed** | rules.md + settings.json | ✅ | ✅ | ✅ |
 
 ---
 
