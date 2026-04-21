@@ -179,24 +179,6 @@ UAT/
 | `bundle-base.js` | Shared utilities: `extractModelProvider()`, `mapStepToXxxType()` |
 | `ui-controller.js` | Handle UI events, coordinate parse/convert flow |
 
-## Testing
-
-Run the comprehensive test suite:
-
-```bash
-node test-node.js
-```
-
-Test coverage includes:
-- Schema validation
-- Platform detection
-- Parser functions for all 12 platforms
-- Encoder functions for all 12 platforms
-- Bundle creation/extraction
-- Edge cases and error handling
-
-**Current status: 157 tests passing**
-
 ## Technology Stack
 
 - **Frontend**: Vanilla JavaScript (no framework dependencies)
@@ -246,27 +228,6 @@ To add support for a new platform:
 6. Add i18n translations in `src/ui/i18n.js`
 
 7. Add tests in `test-node.js`
-
-## Deployment
-
-### Local
-Open `index.html` directly in your browser - no server required.
-
-### GitHub Pages
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git push origin main
-# Enable Pages in repository Settings
-```
-
-### Vercel / Netlify
-```bash
-vercel deploy
-# or
-netlify deploy
-```
 
 ## Security Features
 

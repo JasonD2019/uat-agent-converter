@@ -181,24 +181,6 @@ UAT/
 | `bundle-base.js` | 共用工具：`extractModelProvider()`, `mapStepToXxxType()` |
 | `ui-controller.js` | 处理 UI 事件，协调解析/转换流程 |
 
-## 测试
-
-运行完整的测试套件：
-
-```bash
-node test-node.js
-```
-
-测试覆盖范围：
-- Schema 验证
-- 平台检测
-- 12 个平台的解析函数
-- 12 个平台的编码函数
-- Bundle 创建/解压
-- 边缘情况和错误处理
-
-**当前状态：157 个测试通过**
-
 ## 技术栈
 
 - **前端**：原生 JavaScript（无框架依赖）
@@ -248,27 +230,6 @@ node test-node.js
 6. 在 `src/ui/i18n.js` 添加翻译
 
 7. 在 `test-node.js` 添加测试
-
-## 部署方式
-
-### 本地使用
-直接在浏览器打开 `index.html` — 无需服务器。
-
-### GitHub Pages
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git push origin main
-# 在仓库 Settings 中启用 Pages
-```
-
-### Vercel / Netlify
-```bash
-vercel deploy
-# 或
-netlify deploy
-```
 
 ## 安全特性
 
