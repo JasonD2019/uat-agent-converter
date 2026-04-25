@@ -8,7 +8,7 @@
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-green?logo=github)](https://jasond2019.github.io/uat-agent-converter/)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platforms](https://img.shields.io/badge/platforms-12-green.svg)
-![Version](https://img.shields.io/badge/version-2.0-purple.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-purple.svg)
 
 **Local · Offline · Secure** — All processing runs in your browser, no data uploaded to any server.
 
@@ -36,14 +36,37 @@ node src/cli/uat-cli.js help
 node src/cli/uat-cli.js platforms
 
 # Auto-detect platform from config file
-node src/cli/uat-cli.js detect --input config.md
+node src/cli/uat-cli.js detect --input config.md --confidence
 
 # Parse config to UAT-Schema
 node src/cli/uat-cli.js parse --input dify.yaml --platform dify --output schema.json
 
+# Parse with knowledge/skills packing
+node src/cli/uat-cli.js parse --input openclaw.json --pack-kb --pack-skills
+
 # Convert Schema to target platform
 node src/cli/uat-cli.js convert --schema schema.json --target cursor --output-dir ./output
+
+# Convert with sensitive info sanitization
+node src/cli/uat-cli.js convert --schema schema.json --target claude --sanitize --integrity
+
+# Generate integrity report
+node src/cli/uat-cli.js integrity --schema schema.json --format markdown
 ```
+
+### CLI Parameters (v1.1.0)
+
+| Parameter | Description |
+|-----------|-------------|
+| `--content <string>` | Direct content input (no file needed) |
+| `--confidence` | Show platform detection confidence |
+| `--validate` | Validate output format |
+| `--pack-kb` | Pack knowledge base content |
+| `--pack-skills` | Pack skills information |
+| `--sanitize` | Sanitize sensitive info (API keys, passwords) |
+| `--sanitize-strategy` | Strategy: mask, remove, placeholder |
+| `--integrity` | Generate integrity report after conversion |
+| `--format` | Report format: json, markdown, yaml, html |
 
 ### To Agent 🤖
 
@@ -77,6 +100,16 @@ For AI assistants using the Skill:
 - **Real-time Preview** — View parsed files and generated schema instantly
 - **i18n Support** — English/Chinese interface
 - **CLI & Skill Support** — Command-line tool and AI assistant skill for batch conversion
+
+### Data Migration (v1.1.0 F-Series)
+
+| Feature | Description |
+|---------|-------------|
+| **memoryEntries** | Structured memory entries with type, priority, source metadata |
+| **knowledgeBaseContent** | Pack knowledge base files for cross-platform transfer |
+| **skills Layer** | Skills inference from prompts and tools configuration |
+| **Secrets Sanitizer** | Detect and sanitize API keys, passwords, tokens |
+| **Integrity Report** | Track data completeness across platform conversion |
 
 ## Supported Platforms
 
@@ -157,7 +190,8 @@ UAT/
 │
 ├── src/
 │   ├── core/
-│   │   └── schema.js       # UAT-Schema v2.0 definition
+│   │   ├── schema.js       # UAT-Schema v2.0 definition
+│   │   └── schema-extensions.js  # F1: memoryEntries, knowledgeBaseContent, skills
 │   │
 │   ├── input/
 │   │   └── input-utils.js  # File upload/ZIP handling
@@ -166,7 +200,8 @@ UAT/
 │   │   └── platform-detector.js  # Auto platform detection
 │   │
 │   ├── parser/
-│   │   └── parser-pool.js  # Parser dispatcher
+│   │   ├── parser-pool.js  # Parser dispatcher
+│   │   └── memory-parser.js  # F2/F3: Unified memory parsing (11 platforms)
 │   │
 │   ├── encoder/
 │   │   ├── encoder-pool.js      # Legacy encoder functions
@@ -174,6 +209,8 @@ UAT/
 │   │
 │   ├── bundle/                  # Platform-specific modules
 │   │   ├── bundle-base.js       # Shared utilities
+│   │   ├── knowledge-packager.js  # F1: Knowledge base packing
+│   │   ├── skills-packager.js     # F4: Skills inference & packing
 │   │   ├── openclaw-bundle.js   # OpenClaw: parse + encode + create
 │   │   ├── hermes-bundle.js     # Hermes: parse + encode + create
 │   │   ├── cursor-bundle.js     # Cursor: parse + encode + create
@@ -187,14 +224,18 @@ UAT/
 │   │   └── zed-bundle.js        # Zed: parse + encode + create
 │   │
 │   ├── export/
-│   │   └── export-utils.js # ZIP export utilities
+│   │   ├── export-utils.js # ZIP export utilities
+│   │   └── integrity-report.js  # F6: Integrity report generation
 │   │
 │   ├── ui/
 │   │   ├── i18n.js         # Internationalization (EN/ZH)
 │   │   └── ui-controller.js # UI interaction controller
 │   │
-│   └── guard/
-│       └── guard.js        # Validation guards
+│   ├── guard/
+│   │   └── secrets-sanitizer.js  # F5: Secrets detection & sanitization
+│   │
+│   └── cli/
+│       └── uat-cli.js      # CLI v1.1.0 (E/F-series parameters)
 │
 └── README.md               # This file
 ```
@@ -204,11 +245,17 @@ UAT/
 | Module | Responsibility |
 |--------|---------------|
 | `schema.js` | UAT-Schema v2.0 definition and validation |
+| `schema-extensions.js` | Extended structures: memoryEntries, knowledgeBaseContent, skills |
 | `platform-detector.js` | Detect platform from file signatures |
 | `parser-pool.js` | Dispatch to correct parser based on platform |
+| `memory-parser.js` | Unified memory parsing for 11 platforms (A/B/C formats) |
 | `encoder-registry.js` | Dispatch to correct encoder via `UATEncoder.encodeToFiles()` |
 | `bundle/*.js` | Complete platform implementation: parse + encode + bundle |
-| `bundle-base.js` | Shared utilities: `extractModelProvider()`, `mapStepToXxxType()` |
+| `knowledge-packager.js` | Pack/unpack knowledge base content for transfer |
+| `skills-packager.js` | Infer and pack skills from prompts/tools |
+| `secrets-sanitizer.js` | Detect API keys, passwords, tokens; sanitize output |
+| `integrity-report.js` | Generate conversion integrity reports |
+| `uat-cli.js` | CLI v1.1.0 with E/F-series parameters |
 | `ui-controller.js` | Handle UI events, coordinate parse/convert flow |
 
 ## Technology Stack

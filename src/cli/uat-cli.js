@@ -316,7 +316,7 @@ function parseArgs(args) {
 
 function showHelp() {
   console.log(`
-UAT CLI - Agent Config Converter v1.2 (F系列优化)
+UAT CLI - Agent Config Converter v1.1.0 (F-Series Optimization)
 
 用法:
   uat parse --input <file> [--platform <name>]     解析配置文件生成 Schema

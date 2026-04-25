@@ -8,7 +8,7 @@
 // ============================================
 
 const UAT_SCHEMA_TEMPLATE = {
-  "$schema": "UAT-Agent-Schema/v2.0",
+  "$schema": "UAT-Agent-Schema/v2.0.1",
   meta: {
     agentId: "",
     name: "",
@@ -215,7 +215,7 @@ function fillSchemaDefaultValues(schema) {
   }
 
   if (!schema["$schema"]) {
-    schema["$schema"] = "UAT-Agent-Schema/v2.0";
+    schema["$schema"] = "UAT-Agent-Schema/v2.0.1";
   }
 
   return schema;
