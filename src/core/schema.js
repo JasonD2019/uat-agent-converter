@@ -44,7 +44,7 @@ const UAT_SCHEMA_TEMPLATE = {
     terminateRule: ""
   },
   memory: {
-    longTermMemory: "",
+    longTermMemory: [],    // 改为数组格式，支持结构化记忆
     userPreference: "",
     knowledgeBaseRef: [],  // 知识库引用（仅ID，不传递内容）
     sessionRetention: false,

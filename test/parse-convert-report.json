@@ -1,0 +1,438 @@
+{
+  "timestamp": "2026-04-25T00:26:56.503Z",
+  "phase": "Phase 2 Parse + Phase 3 Convert + Phase 5 Migration",
+  "summary": {
+    "passed": 107,
+    "failed": 0
+  },
+  "results": [
+    {
+      "name": "Dify 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify 解析 - 系统提示词",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify 解析 - 模型配置",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify 解析 - 工作流节点",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify 解析 - 知识库",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify 解析 - 长期记忆",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw JSON 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw JSON 解析 - Agent 配置",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw JSON 解析 - Soul 约束",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw JSON 解析 - 长期记忆",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw JSON 解析 - 知识库引用",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw JSON 解析 - Tools",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw JSON 解析 - 工作流",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw MD 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes YAML 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes YAML 解析 - 模型配置",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes YAML 解析 - System Prompt",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes YAML 解析 - 约束",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes YAML 解析 - 知识库",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes YAML 解析 - Session Memory",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes JSON 解析 - 记忆条目",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor Rules 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor Rules 解析 - 系统提示词",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor Rules 解析 - 约束",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor Rules 解析 - Soul 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor Rules 解析 - Memory 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Windsurf Rules 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Windsurf Rules 解析 - 系统提示词",
+      "status": "PASS"
+    },
+    {
+      "name": "Windsurf Rules 解析 - 约束",
+      "status": "PASS"
+    },
+    {
+      "name": "Windsurf Rules 解析 - Identity 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Windsurf Rules 解析 - Workflow 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude MD 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude MD 解析 - Identity 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude MD 解析 - Memory 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude MD 解析 - Skills 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude MD 解析 - MCP 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT JSON 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT JSON 解析 - Agent Identity",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT JSON 解析 - 工作流节点",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT JSON 解析 - 知识库引用",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT JSON 解析 - 模型配置",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT JSON 解析 - Memory 配置",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise JSON 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise JSON 解析 - 工作流节点",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise JSON 解析 - Agent Config",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise JSON 解析 - 知识库",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise JSON 解析 - 模型",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot Instructions 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot Instructions 解析 - 系统提示词",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot Instructions 解析 - 约束",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot Instructions 解析 - Code Style",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot Instructions 解析 - Memory Context",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex AGENTS.md 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex AGENTS.md 解析 - Agent Identity",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex AGENTS.md 解析 - Skills 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex AGENTS.md 解析 - Memory 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex AGENTS.md 解析 - Tools 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed Rules 解析 - 基础信息",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed Rules 解析 - Rules 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed Rules 解析 - Identity 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed Rules 解析 - Memory 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed Rules 解析 - Tasks 部分",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify → OpenClaw 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify → FastGPT 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify → Hermes 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Dify → Cursor 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw → Dify 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw → FastGPT 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "OpenClaw → Hermes 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes → Dify 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes → OpenClaw 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Hermes → Cursor 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor → OpenClaw 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Cursor → Windsurf 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Windsurf → Cursor 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Windsurf → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude → OpenClaw 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude → Dify 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Claude → Cursor 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT → Dify 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT → OpenClaw 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "FastGPT → Flowise 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise → Dify 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise → FastGPT 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Flowise → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot → Cursor 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Copilot → Windsurf 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex → Cursor 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Codex → OpenClaw 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed → Claude 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed → Cursor 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Zed → Windsurf 转换",
+      "status": "PASS"
+    },
+    {
+      "name": "Memory 迁移 - OpenClaw 长期记忆",
+      "status": "PASS"
+    },
+    {
+      "name": "Memory 迁移 - Hermes Session Memory",
+      "status": "PASS"
+    },
+    {
+      "name": "Knowledge Base 迁移 - Dify",
+      "status": "PASS"
+    },
+    {
+      "name": "Knowledge Base 迁移 - FastGPT Datasets",
+      "status": "PASS"
+    },
+    {
+      "name": "Tools 迁移 - Dify",
+      "status": "PASS"
+    },
+    {
+      "name": "Tools 迁移 - OpenClaw",
+      "status": "PASS"
+    },
+    {
+      "name": "Workflow 迁移 - OpenClaw Steps",
+      "status": "PASS"
+    },
+    {
+      "name": "Workflow 迁移 - Hermes",
+      "status": "PASS"
+    }
+  ]
+}

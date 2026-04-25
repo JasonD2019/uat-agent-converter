@@ -1,0 +1,73 @@
+# Dify Agent DSL 测试配置
+# 包含完整的 workflow 和知识库引用
+
+app:
+  description: "智能代码助手，专注于代码审查和优化"
+  icon: "🔍"
+  mode: "workflow"
+
+workflow:
+  name: "代码审查工作流"
+  nodes:
+    - id: "start"
+      type: "start"
+      data:
+        title: "开始"
+        inputs:
+          - variable: "code"
+            label: "代码内容"
+            type: "string"
+
+    - id: "analyze"
+      type: "llm"
+      data:
+        title: "代码分析"
+        model:
+          provider: "openai"
+          name: "gpt-4"
+          completion_params:
+            temperature: 0.3
+            max_tokens: 2000
+        prompt_template: |
+          分析以下代码的质量问题：
+          {{code}}
+
+          请提供：
+          1. 代码质量评分
+          2. 发现的问题列表
+          3. 优化建议
+
+    - id: "review"
+      type: "llm"
+      data:
+        title: "审查建议"
+        model:
+          provider: "openai"
+          name: "gpt-4"
+        prompt_template: |
+          基于分析结果，生成详细的审查报告
+
+knowledge_base:
+  enabled: true
+  datasets:
+    - id: "kb-code-standards"
+      name: "代码规范知识库"
+      type: "external"
+      description: "包含团队代码规范和最佳实践"
+    - id: "kb-api-docs"
+      name: "API文档知识库"
+      type: "external"
+      description: "项目API接口文档"
+
+agent_identity:
+  name: "CodeReviewer"
+  role: "代码审查专家"
+  personality: "严谨、专业、耐心"
+
+memory:
+  long_term:
+    - "用户偏好详细的代码注释"
+    - "团队使用 TypeScript 开发"
+    - "重点关注性能优化"
+
+  user_preference: "输出格式偏好 Markdown，需要包含代码示例"

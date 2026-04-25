@@ -1,0 +1,60 @@
+{
+  "version": "1.0",
+  "exported_at": "2024-04-15T10:00:00Z",
+  "memory_entries": [
+    {
+      "id": "hermes-mem-001",
+      "type": "user_preference",
+      "category": "language",
+      "content": "用户偏好使用 TypeScript 开发，关注类型安全",
+      "importance": 0.9,
+      "created_at": "2024-01-10",
+      "last_accessed": "2024-04-15"
+    },
+    {
+      "id": "hermes-mem-002",
+      "type": "project_context",
+      "category": "architecture",
+      "content": "项目采用微服务架构，使用 Docker 容器化部署",
+      "importance": 0.8,
+      "created_at": "2024-02-01",
+      "last_accessed": "2024-04-15"
+    },
+    {
+      "id": "hermes-mem-003",
+      "type": "coding_style",
+      "category": "standards",
+      "content": "团队代码风格: 使用 ESLint + Prettier，遵循 Airbnb 规范",
+      "importance": 0.85,
+      "created_at": "2024-01-20",
+      "last_accessed": "2024-04-14"
+    },
+    {
+      "id": "hermes-mem-004",
+      "type": "skill",
+      "category": "development",
+      "content": "已学会分析复杂 SQL 查询并提供优化建议",
+      "importance": 0.75,
+      "created_at": "2024-03-10",
+      "last_accessed": "2024-04-13"
+    }
+  ],
+  "knowledge_base_references": [
+    {
+      "id": "kb-hermes-001",
+      "name": "项目架构文档",
+      "type": "md",
+      "path": "docs/architecture.md",
+      "size": 5120,
+      "checksum": "abc123def456"
+    },
+    {
+      "id": "kb-hermes-002",
+      "name": "编码规范手册",
+      "type": "md",
+      "path": "docs/style-guide.md",
+      "size": 3072,
+      "checksum": "ghi789jkl012"
+    }
+  ]
+}

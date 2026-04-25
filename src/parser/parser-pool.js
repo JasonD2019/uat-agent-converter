@@ -66,26 +66,67 @@ function parseDifyDSLEnhanced(text, schema) {
   schema.meta.sourcePlatform = 'dify';
 
   try {
-    // 基础信息
-    schema.meta.name = extractYAMLValue(text, 'name') || 'Dify Agent';
-    schema.meta.description = extractYAMLValue(text, 'description') || '';
+    // 基础信息 - 支持 app.description 和 workflow.name
+    const appDescMatch = text.match(/app:\s*\n[\s\S]*?description:\s*["']([^"']+)["']/);
+    if (appDescMatch) {
+      schema.meta.description = appDescMatch[1];
+    }
 
-    // 系统提示词
+    // Workflow name 作为 Agent 名称 - 支持无引号格式
+    const workflowNameMatch = text.match(/workflow:\s*\n\s*name:\s*["']?([^"'\n]+)["']?/);
+    if (workflowNameMatch) {
+      schema.meta.name = workflowNameMatch[1].trim();
+    } else {
+      schema.meta.name = extractYAMLValue(text, 'name') || 'Dify Agent';
+    }
+
+    // Agent Identity 块
+    const agentIdentityMatch = text.match(/agent_identity:\s*\n([\s\S]*?)(?=\n\w+:|\n\n|$)/);
+    if (agentIdentityMatch) {
+      const agentBlock = agentIdentityMatch[1];
+      const agentName = extractYAMLValueFromBlock(agentBlock, 'name');
+      if (agentName) schema.meta.name = agentName;
+      schema.identity.role = extractYAMLValueFromBlock(agentBlock, 'role') || '';
+
+      // Personality 作为约束
+      const personalityMatch = agentBlock.match(/personality:\s*["']([^"']+)["']/);
+      if (personalityMatch) {
+        schema.identity.constraints.push(`性格特征: ${personalityMatch[1]}`);
+      }
+    }
+
+    // 系统提示词 - 从节点中提取
     schema.identity.systemPrompt = extractDifySystemPrompt(text);
 
-    // 模型配置
-    schema.modelConfig.model = extractYAMLValue(text, 'model') || extractYAMLValue(text, 'name', 'model:') || 'gpt-4';
-    schema.modelConfig.temperature = parseFloat(extractYAMLValue(text, 'temperature')) || 0.7;
-    schema.modelConfig.maxTokens = parseInt(extractYAMLValue(text, 'max_tokens')) || 4096;
+    // 模型配置 - 支持嵌套 model 块
+    const modelMatch = text.match(/model:\s*\n[\s\S]*?name:\s*["']([^"']+)["']/);
+    if (modelMatch) {
+      schema.modelConfig.model = modelMatch[1];
+    } else {
+      schema.modelConfig.model = extractYAMLValue(text, 'model') || 'gpt-4';
+    }
+
+    const tempMatch = text.match(/temperature:\s*([\d.]+)/);
+    if (tempMatch) {
+      schema.modelConfig.temperature = parseFloat(tempMatch[1]);
+    }
+
+    const maxTokensMatch = text.match(/max_tokens:\s*(\d+)/);
+    if (maxTokensMatch) {
+      schema.modelConfig.maxTokens = parseInt(maxTokensMatch[1]);
+    }
 
     // 解析工作流节点
     parseDifyWorkflowNodes(text, schema);
 
-    // 解析知识库引用（仅ID）
-    parseDifyKnowledgeBase(text, schema);
+    // 解析知识库引用 - 支持 knowledge_base.datasets 格式
+    parseDifyKnowledgeBaseEnhanced(text, schema);
 
     // 解析工具配置
     parseDifyTools(text, schema);
+
+    // 解析 Memory 块
+    parseDifyMemory(text, schema);
 
   } catch (error) {
     console.warn('Dify 解析警告:', error.message);
@@ -251,6 +292,73 @@ function parseDifyKnowledgeBase(text, schema) {
   }
 }
 
+// 增强版知识库解析 - 支持 knowledge_base.datasets 格式
+function parseDifyKnowledgeBaseEnhanced(text, schema) {
+  // 先调用原有解析
+  parseDifyKnowledgeBase(text, schema);
+
+  // 新格式: knowledge_base.datasets
+  const kbBlockMatch = text.match(/knowledge_base:\s*\n([\s\S]*?)(?=\n\w+:|\n\n|$)/);
+  if (kbBlockMatch) {
+    const kbBlock = kbBlockMatch[1];
+    const datasetsMatch = kbBlock.match(/datasets:\s*\n([\s\S]*?)(?=\n\s*\w+:|\n\n|$)/);
+
+    if (datasetsMatch) {
+      const datasetsBlock = datasetsMatch[1];
+      const dsRegex = /-\s*id:\s*["']([^"']+)["']\s*\n\s*name:\s*["']([^"']+)["']/g;
+      let match;
+
+      while ((match = dsRegex.exec(datasetsBlock)) !== null) {
+        // 避免重复添加
+        const existing = schema.memory.knowledgeBaseRef.find(kb => kb.id === match[1]);
+        if (!existing) {
+          schema.memory.knowledgeBaseRef.push({
+            id: match[1].trim(),
+            name: match[2].trim(),
+            platform: 'dify'
+          });
+        }
+      }
+    }
+  }
+}
+
+// Dify Memory 解析
+function parseDifyMemory(text, schema) {
+  const memoryMatch = text.match(/memory:\s*\n([\s\S]*?)(?=\n\w+:|\n\n|$)/);
+  if (memoryMatch) {
+    const memoryBlock = memoryMatch[1];
+
+    // long_term 记忆列表
+    const longTermMatch = memoryBlock.match(/long_term:\s*\n([\s\S]*?)(?=\n\s*\w+:|\n\n|$)/);
+    if (longTermMatch) {
+      const longTermBlock = longTermMatch[1];
+      const itemRegex = /-\s*["']([^"']+)["']/g;
+      let match;
+
+      while ((match = itemRegex.exec(longTermBlock)) !== null) {
+        schema.memory.longTermMemory.push({
+          id: UATCore.generateUUID(),
+          type: 'string',
+          content: match[1].trim(),
+          importance: 0.8
+        });
+      }
+    }
+
+    // user_preference
+    const userPrefMatch = memoryBlock.match(/user_preference:\s*["']([^"']+)["']/);
+    if (userPrefMatch) {
+      schema.memory.longTermMemory.push({
+        id: UATCore.generateUUID(),
+        type: 'preference',
+        content: userPrefMatch[1].trim(),
+        importance: 0.9
+      });
+    }
+  }
+}
+
 function parseDifyTools(text, schema) {
   // MCP 工具
   const mcpMatch = text.match(/mcp_servers:\s*\n([\s\S]*?)(?=\n[a-zA-Z_]|\n\n|$)/);
@@ -347,6 +455,14 @@ function parseFastGPTEnhanced(text, schema) {
     schema.meta.description = data.appConfig.intro || '';
   }
 
+  // 新格式：直接 name 字段
+  if (data.name && !schema.meta.name) {
+    schema.meta.name = data.name;
+  }
+  if (data.description && !schema.meta.description) {
+    schema.meta.description = data.description;
+  }
+
   // 对话配置
   if (data.chatConfig) {
     schema.identity.systemPrompt = data.chatConfig.systemPrompt || '';
@@ -373,14 +489,68 @@ function parseFastGPTEnhanced(text, schema) {
     parseFastGPTWorkflowNodes(data.workflow, schema);
   }
 
-  // 知识库引用
+  // Agent Identity（新格式）
+  if (data.agentIdentity) {
+    schema.identity.role = data.agentIdentity.role || schema.identity.role;
+    if (data.agentIdentity.personality && Array.isArray(data.agentIdentity.personality)) {
+      schema.identity.constraints.push(`性格: ${data.agentIdentity.personality.join(', ')}`);
+    }
+  }
+
+  // Memory 配置（新格式）
+  if (data.memory) {
+    if (data.memory.longTermMemory && Array.isArray(data.memory.longTermMemory)) {
+      for (const mem of data.memory.longTermMemory) {
+        if (typeof mem === 'string') {
+          schema.memory.longTermMemory.push({
+            id: UATCore.generateUUID(),
+            type: 'string',
+            content: mem,
+            importance: 0.8
+          });
+        } else if (mem.content) {
+          schema.memory.longTermMemory.push({
+            id: mem.id || UATCore.generateUUID(),
+            type: mem.type || 'string',
+            content: mem.content,
+            importance: mem.importance || 0.8
+          });
+        }
+      }
+    }
+
+    if (data.memory.sessionMemory) {
+      schema.memory.sessionMemory.enabled = data.memory.sessionMemory.enabled || true;
+      schema.memory.sessionMemory.maxMessages = data.memory.sessionMemory.maxMessages || 50;
+    }
+
+    if (data.memory.longTermMemory) {
+      // 已处理
+    }
+  }
+
+  // 知识库引用 - 支持两种格式
   if (data.datasets) {
-    for (const ds of data.datasets) {
-      schema.memory.knowledgeBaseRef.push({
-        id: ds.id || '',
-        name: ds.name || 'Dataset',
-        platform: 'fastgpt'
-      });
+    // 旧格式：直接数组
+    if (Array.isArray(data.datasets)) {
+      for (const ds of data.datasets) {
+        schema.memory.knowledgeBaseRef.push({
+          id: ds.id || '',
+          name: ds.name || 'Dataset',
+          platform: 'fastgpt'
+        });
+      }
+    }
+    // 新格式：datasets.datasets 嵌套
+    else if (data.datasets.datasets && Array.isArray(data.datasets.datasets)) {
+      for (const ds of data.datasets.datasets) {
+        schema.memory.knowledgeBaseRef.push({
+          id: ds.id || '',
+          name: ds.name || 'Dataset',
+          type: ds.type || 'external',
+          platform: 'fastgpt'
+        });
+      }
     }
   }
 
@@ -704,67 +874,223 @@ function parseClaudeMCPConfig(yamlHeader, schema) {
 }
 
 // ============================================
-// 解析器5：OpenClaw Markdown 解析器（增强版）
+// 解析器5：OpenClaw 解析器（增强版 - 支持 JSON 和 Markdown）
 // ============================================
 
 function parseOpenClawEnhanced(text, schema) {
   schema.meta.sourcePlatform = 'openclaw';
 
   try {
-    // Identity 块
-    const identityMatch = text.match(/#?\s*Identity\s*\n([\s\S]*?)(?=\n#|\nSoul|\nSkill|\n\n|$)/i);
-    if (identityMatch) {
-      const identityBlock = identityMatch[1];
-      schema.identity.role = extractMarkdownSection(identityBlock, 'Role');
-      schema.identity.systemPrompt = extractMarkdownSection(identityBlock, 'System Prompt') ||
-                                      extractMarkdownSection(identityBlock, 'Prompt') ||
-                                      identityBlock.trim();
-
-      // 提取名称
-      const nameMatch = identityBlock.match(/Name:\s*['"]?([^'":\n]+)['"]?/i);
-      if (nameMatch) schema.meta.name = nameMatch[1].trim();
+    // 检测是否为 JSON 格式
+    if (text.trim().startsWith('{')) {
+      parseOpenClawJSON(text, schema);
+      return;
     }
 
-    // Soul 块（全局约束）
-    const soulMatch = text.match(/#?\s*Soul\s*\n([\s\S]*?)(?=\n#|\nSkill|\n\n|$)/i);
-    if (soulMatch) {
-      const soulBlock = soulMatch[1];
-      const constraints = soulBlock.split(/\n\n+/).filter(s => s.trim());
-      schema.identity.constraints = constraints;
-    }
-
-    // Skill 块（工作流步骤）
-    const skillMatch = text.match(/#?\s*Skill[s]?\s*\n([\s\S]*?)(?=\n#|\n\n|$)/i);
-    if (skillMatch) {
-      const skillBlock = skillMatch[1];
-      const skills = skillBlock.split(/\n##\s+/).filter(s => s.trim());
-
-      for (let i = 0; i < skills.length; i++) {
-        const skill = skills[i];
-        const name = skill.split('\n')[0].trim();
-
-        const step = UATCore.createEmptyWorkflowStep();
-        step.stepId = `skill_${i}`;
-        step.name = name;
-        step.type = 'prompt';
-        step.content = skill.trim();
-        step.nextStepId = i < skills.length - 1 ? `skill_${i + 1}` : '';
-
-        schema.workflow.steps.push(step);
-      }
-    }
-
-    // Model 配置
-    const modelMatch = text.match(/Model:\s*([a-zA-Z0-9_-]+)/i);
-    if (modelMatch) schema.modelConfig.model = modelMatch[1];
-
-    // Prompt 变量
-    schema.identity.promptVariables = UATCore.extractPromptVariables(schema.identity.systemPrompt);
+    // Markdown 格式解析
+    parseOpenClawMarkdown(text, schema);
 
   } catch (error) {
     console.warn('OpenClaw 解析警告:', error.message);
     schema.identity.systemPrompt = text;
   }
+}
+
+// OpenClaw JSON 配置解析
+function parseOpenClawJSON(text, schema) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    // 如果解析失败，尝试 Markdown 解析
+    parseOpenClawMarkdown(text, schema);
+    return;
+  }
+
+  // Agent 基础信息
+  if (data.agent) {
+    schema.meta.name = data.agent.name || 'OpenClaw Agent';
+    schema.meta.description = data.agent.description || '';
+    schema.modelConfig.model = data.agent.model || 'gpt-4';
+    schema.modelConfig.temperature = data.agent.temperature || 0.7;
+    schema.modelConfig.maxTokens = data.agent.max_tokens || 4096;
+  }
+
+  // Soul 配置
+  if (data.soul) {
+    schema.identity.role = data.soul.mission || '';
+    if (data.soul.personality && Array.isArray(data.soul.personality)) {
+      schema.identity.constraints.push(`性格: ${data.soul.personality.join(', ')}`);
+    }
+    if (data.soul.communication_style) {
+      schema.identity.constraints.push(`沟通风格: ${data.soul.communication_style}`);
+    }
+  }
+
+  // Identity 配置
+  if (data.identity) {
+    schema.identity.role = data.identity.role || schema.identity.role;
+    if (data.identity.background) {
+      schema.identity.constraints.push(`背景: ${data.identity.background}`);
+    }
+    if (data.identity.expertise && Array.isArray(data.identity.expertise)) {
+      schema.identity.constraints.push(`专业领域: ${data.identity.expertise.join(', ')}`);
+    }
+  }
+
+  // 系统提示词构建
+  schema.identity.systemPrompt = buildOpenClawSystemPrompt(data);
+
+  // Memory 配置
+  if (data.memory) {
+    // 长期记忆
+    if (data.memory.long_term_memory && Array.isArray(data.memory.long_term_memory)) {
+      for (const mem of data.memory.long_term_memory) {
+        schema.memory.longTermMemory.push({
+          id: mem.id || UATCore.generateUUID(),
+          type: mem.type || 'string',
+          content: mem.content || '',
+          importance: mem.importance || 0.8
+        });
+      }
+    }
+
+    // 知识库引用
+    if (data.memory.knowledge_base_ref && Array.isArray(data.memory.knowledge_base_ref)) {
+      for (const kb of data.memory.knowledge_base_ref) {
+        schema.memory.knowledgeBaseRef.push({
+          id: kb.id || '',
+          name: kb.name || 'Knowledge Base',
+          type: kb.type || 'external',
+          platform: 'openclaw'
+        });
+      }
+    }
+
+    // 用户偏好
+    if (data.memory.user_preference) {
+      schema.memory.longTermMemory.push({
+        id: UATCore.generateUUID(),
+        type: 'preference',
+        content: data.memory.user_preference,
+        importance: 0.9
+      });
+    }
+  }
+
+  // Tools 配置
+  if (data.tools && Array.isArray(data.tools)) {
+    for (const tool of data.tools) {
+      if (tool.type === 'function') {
+        schema.tools.functions.push({
+          id: tool.name || UATCore.generateUUID(),
+          name: tool.name || '',
+          description: tool.description || '',
+          code: '',
+          inputs: tool.schema?.input || [],
+          outputs: tool.schema?.output || []
+        });
+      }
+    }
+  }
+
+  // Workflow 配置
+  if (data.workflow && Array.isArray(data.workflow)) {
+    for (let i = 0; i < data.workflow.length; i++) {
+      const wfStep = data.workflow[i];
+      const step = UATCore.createEmptyWorkflowStep();
+      step.stepId = `step_${i}`;
+      step.name = wfStep.step || `Step ${i + 1}`;
+      step.type = mapOpenClawStepType(wfStep.type);
+      step.content = wfStep.content || '';
+      step.nextStepId = i < data.workflow.length - 1 ? `step_${i + 1}` : '';
+
+      schema.workflow.steps.push(step);
+    }
+  }
+}
+
+// OpenClaw Markdown 解析
+function parseOpenClawMarkdown(text, schema) {
+  // Identity 块
+  const identityMatch = text.match(/#?\s*Identity\s*\n([\s\S]*?)(?=\n#|\nSoul|\nSkill|\n\n|$)/i);
+  if (identityMatch) {
+    const identityBlock = identityMatch[1];
+    schema.identity.role = extractMarkdownSection(identityBlock, 'Role');
+    schema.identity.systemPrompt = extractMarkdownSection(identityBlock, 'System Prompt') ||
+                                    extractMarkdownSection(identityBlock, 'Prompt') ||
+                                    identityBlock.trim();
+
+    // 提取名称
+    const nameMatch = identityBlock.match(/Name:\s*['"]?([^'":\n]+)['"]?/i);
+    if (nameMatch) schema.meta.name = nameMatch[1].trim();
+  }
+
+  // Soul 块（全局约束）
+  const soulMatch = text.match(/#?\s*Soul\s*\n([\s\S]*?)(?=\n#|\nSkill|\n\n|$)/i);
+  if (soulMatch) {
+    const soulBlock = soulMatch[1];
+    const constraints = soulBlock.split(/\n\n+/).filter(s => s.trim());
+    schema.identity.constraints = constraints;
+  }
+
+  // Skill 块（工作流步骤）
+  const skillMatch = text.match(/#?\s*Skill[s]?\s*\n([\s\S]*?)(?=\n#|\n\n|$)/i);
+  if (skillMatch) {
+    const skillBlock = skillMatch[1];
+    const skills = skillBlock.split(/\n##\s+/).filter(s => s.trim());
+
+    for (let i = 0; i < skills.length; i++) {
+      const skill = skills[i];
+      const name = skill.split('\n')[0].trim();
+
+      const step = UATCore.createEmptyWorkflowStep();
+      step.stepId = `skill_${i}`;
+      step.name = name;
+      step.type = 'prompt';
+      step.content = skill.trim();
+      step.nextStepId = i < skills.length - 1 ? `skill_${i + 1}` : '';
+
+      schema.workflow.steps.push(step);
+    }
+  }
+
+  // Model 配置
+  const modelMatch = text.match(/Model:\s*([a-zA-Z0-9_-]+)/i);
+  if (modelMatch) schema.modelConfig.model = modelMatch[1];
+
+  // Prompt 变量
+  schema.identity.promptVariables = UATCore.extractPromptVariables(schema.identity.systemPrompt);
+}
+
+function buildOpenClawSystemPrompt(data) {
+  let prompt = '';
+
+  if (data.soul?.mission) {
+    prompt += `# Mission\n${data.soul.mission}\n\n`;
+  }
+
+  if (data.identity?.role) {
+    prompt += `# Role\n${data.identity.role}\n\n`;
+  }
+
+  if (data.soul?.communication_style) {
+    prompt += `# Communication Style\n${data.soul.communication_style}\n\n`;
+  }
+
+  return prompt.trim();
+}
+
+function mapOpenClawStepType(openclawType) {
+  const typeMap = {
+    'action': 'prompt',
+    'prompt': 'prompt',
+    'tool': 'api',
+    'condition': 'condition',
+    'loop': 'loop',
+    'end': 'end'
+  };
+  return typeMap[openclawType] || 'prompt';
 }
 
 // ============================================
@@ -839,30 +1165,107 @@ function parseHermesYAML(text, schema) {
     // 提取版本
     const version = extractYAMLValue(text, 'hermes_version');
 
-    // Agent 块
+    // 新格式：name/description 直接定义
+    const directName = extractYAMLValue(text, 'name');
+    if (directName) {
+      schema.meta.name = directName;
+    }
+    const directDesc = extractYAMLValue(text, 'description');
+    if (directDesc) {
+      schema.meta.description = directDesc;
+    }
+
+    // Agent 块（旧格式）
     const agentMatch = text.match(/agent:\s*\n([\s\S]*?)(?=\n\w+:|$)/);
     if (agentMatch) {
       const agentBlock = agentMatch[1];
-      schema.meta.name = extractYAMLValueFromBlock(agentBlock, 'name') || 'Hermes Agent';
-      schema.meta.description = extractYAMLValueFromBlock(agentBlock, 'description') || '';
+      if (!schema.meta.name) {
+        schema.meta.name = extractYAMLValueFromBlock(agentBlock, 'name') || 'Hermes Agent';
+      }
+      if (!schema.meta.description) {
+        schema.meta.description = extractYAMLValueFromBlock(agentBlock, 'description') || '';
+      }
       schema.identity.role = extractYAMLValueFromBlock(agentBlock, 'role') || 'assistant';
     }
 
-    // Model 块
+    // Model 块 - 支持两种格式
     const modelMatch = text.match(/model:\s*\n([\s\S]*?)(?=\n\w+:|$)/);
     if (modelMatch) {
       const modelBlock = modelMatch[1];
-      schema.modelConfig.model = extractYAMLValueFromBlock(modelBlock, 'name') ||
-                                  extractYAMLValueFromBlock(modelBlock, 'provider') || 'gpt-4';
-      schema.modelConfig.temperature = parseFloat(extractYAMLValueFromBlock(modelBlock, 'temperature')) || 0.7;
-      schema.modelConfig.maxTokens = parseInt(extractYAMLValueFromBlock(modelBlock, 'max_tokens')) || 4096;
+      // 新格式: model.name 可能在嵌套的 parameters 里
+      const modelName = extractYAMLValueFromBlock(modelBlock, 'name');
+      if (modelName) {
+        schema.modelConfig.model = modelName;
+      } else {
+        schema.modelConfig.model = extractYAMLValueFromBlock(modelBlock, 'provider') || 'gpt-4';
+      }
+
+      // Temperature 在 parameters 里
+      const tempMatch = modelBlock.match(/temperature:\s*([\d.]+)/);
+      if (tempMatch) {
+        schema.modelConfig.temperature = parseFloat(tempMatch[1]);
+      }
+
+      const maxTokensMatch = modelBlock.match(/max_tokens:\s*(\d+)/);
+      if (maxTokensMatch) {
+        schema.modelConfig.maxTokens = parseInt(maxTokensMatch[1]);
+      }
     }
 
-    // Prompt 块
+    // Identity 块（新格式）
+    const identityMatch = text.match(/identity:\s*\n([\s\S]*?)(?=\n\w+:|$)/);
+    if (identityMatch) {
+      const identityBlock = identityMatch[1];
+      schema.identity.role = extractYAMLValueFromBlock(identityBlock, 'role') || schema.identity.role;
+
+      const background = extractYAMLValueFromBlock(identityBlock, 'background');
+      if (background) {
+        schema.identity.constraints.push(`背景: ${background}`);
+      }
+
+      // expertise 数组
+      const expertiseMatch = identityBlock.match(/expertise:\s*\n([\s\S]*?)(?=\n\s*\w+:|$)/);
+      if (expertiseMatch) {
+        const expertiseLines = expertiseMatch[1].split('\n').filter(l => l.trim().startsWith('-'));
+        const expertises = expertiseLines.map(l => l.replace(/^-\s*/, '').trim()).filter(l => l);
+        if (expertises.length > 0) {
+          schema.identity.constraints.push(`专业领域: ${expertises.join(', ')}`);
+        }
+      }
+    }
+
+    // Soul 块（新格式）
+    const soulMatch = text.match(/soul:\s*\n([\s\S]*?)(?=\n\w+:|$)/);
+    if (soulMatch) {
+      const soulBlock = soulMatch[1];
+      const mission = extractYAMLValueFromBlock(soulBlock, 'mission');
+      if (mission) {
+        schema.identity.systemPrompt = mission;
+      }
+
+      // personality 数组
+      const personalityMatch = soulBlock.match(/personality:\s*\n([\s\S]*?)(?=\n\s*\w+:|$)/);
+      if (personalityMatch) {
+        const personalityLines = personalityMatch[1].split('\n').filter(l => l.trim().startsWith('-'));
+        const personalities = personalityLines.map(l => l.replace(/^-\s*/, '').trim()).filter(l => l);
+        if (personalities.length > 0) {
+          schema.identity.constraints.push(`性格: ${personalities.join(', ')}`);
+        }
+      }
+
+      const commStyle = extractYAMLValueFromBlock(soulBlock, 'communication_style');
+      if (commStyle) {
+        schema.identity.constraints.push(`沟通风格: ${commStyle}`);
+      }
+    }
+
+    // Prompt 块（旧格式）
     const promptMatch = text.match(/prompt:\s*\n([\s\S]*?)(?=\n\w+:|$)/);
     if (promptMatch) {
       const promptBlock = promptMatch[1];
-      schema.identity.systemPrompt = extractYAMLValueFromBlock(promptBlock, 'system') || '';
+      if (!schema.identity.systemPrompt) {
+        schema.identity.systemPrompt = extractYAMLValueFromBlock(promptBlock, 'system') || '';
+      }
 
       // 约束列表
       const constraintsMatch = promptBlock.match(/constraints:\s*\n([\s\S]*?)(?=\n\s*\w+:|$)/);
@@ -899,14 +1302,43 @@ function parseHermesYAML(text, schema) {
       parseHermesWorkflow(workflowMatch[1], schema);
     }
 
-    // Memory 块
+    // Memory 块 - 支持两种格式
     const memoryMatch = text.match(/memory:\s*\n([\s\S]*?)(?=\n\w+:|$)/);
     if (memoryMatch) {
       const memoryBlock = memoryMatch[1];
+
+      // Session memory（旧格式）
       const memType = extractYAMLValueFromBlock(memoryBlock, 'type');
       if (memType === 'conversation') {
         schema.memory.sessionMemory.enabled = true;
         schema.memory.sessionMemory.maxMessages = parseInt(extractYAMLValueFromBlock(memoryBlock, 'max_history')) || 50;
+      }
+
+      // Session limit（新格式）
+      const sessionLimitMatch = memoryBlock.match(/session_limit:\s*(\d+)/);
+      if (sessionLimitMatch) {
+        schema.memory.sessionMemory.enabled = true;
+        schema.memory.sessionMemory.maxMessages = parseInt(sessionLimitMatch[1]);
+      }
+
+      // Long term memory entries（新格式）
+      const longTermMatch = memoryBlock.match(/long_term:\s*\n([\s\S]*?)(?=\n\s*\w+:|$)/);
+      if (longTermMatch) {
+        const longTermBlock = longTermMatch[1];
+        const entriesMatch = longTermBlock.match(/entries:\s*\n([\s\S]*?)(?=\n\s*\w+:|$)/);
+        if (entriesMatch) {
+          parseHermesLongTermMemory(entriesMatch[1], schema);
+        }
+      }
+    }
+
+    // Knowledge Base 块（新格式）
+    const kbMatch = text.match(/knowledge_base:\s*\n([\s\S]*?)(?=\n\w+:|$)/);
+    if (kbMatch) {
+      const kbBlock = kbMatch[1];
+      const refsMatch = kbBlock.match(/references:\s*\n([\s\S]*?)(?=\n\s*\w+:|$)/);
+      if (refsMatch) {
+        parseHermesKnowledgeBase(refsMatch[1], schema);
       }
     }
 
@@ -967,6 +1399,35 @@ function parseHermesMCPServers(block, schema) {
   }
 
   if (currentServer) schema.tools.mcpServers.push(currentServer);
+}
+
+// Hermes 长期记忆解析（新格式）
+function parseHermesLongTermMemory(block, schema) {
+  const entryRegex = /-\s*id:\s*["']([^"']+)["']\s*\n\s*type:\s*["']([^"']+)["']\s*\n\s*content:\s*["']([^"']+)["']/g;
+  let match;
+
+  while ((match = entryRegex.exec(block)) !== null) {
+    schema.memory.longTermMemory.push({
+      id: match[1].trim(),
+      type: match[2].trim(),
+      content: match[3].trim(),
+      importance: 0.8
+    });
+  }
+}
+
+// Hermes 知识库引用解析（新格式）
+function parseHermesKnowledgeBase(block, schema) {
+  const refRegex = /-\s*id:\s*["']([^"']+)["']\s*\n\s*name:\s*["']([^"']+)["']/g;
+  let match;
+
+  while ((match = refRegex.exec(block)) !== null) {
+    schema.memory.knowledgeBaseRef.push({
+      id: match[1].trim(),
+      name: match[2].trim(),
+      platform: 'hermes'
+    });
+  }
 }
 
 function parseHermesWorkflow(block, schema) {

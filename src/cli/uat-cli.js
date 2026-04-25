@@ -1,16 +1,56 @@
 #!/usr/bin/env node
 /**
- * UAT CLI - Agent Config Converter Command Line Interface
+ * UAT CLI - Agent Config Converter Command Line Interface v1.1
  *
  * Usage:
  *   node uat-cli.js parse --input <file> [--platform <name>]
+ *   node uat-cli.js parse --content <string> [--platform <name>]
  *   node uat-cli.js convert --schema <file> --target <platform>
  *   node uat-cli.js platforms
  *   node uat-cli.js detect --input <file>
+ *   node uat-cli.js detect --content <string>
  */
 
 const fs = require('fs');
 const path = require('path');
+
+// ============================================
+// Error Codes (E2)
+// ============================================
+
+const ErrorCodes = {
+  // 输入相关错误 (100-199)
+  INPUT_MISSING: { code: 100, message: '缺少输入参数' },
+  INPUT_FILE_NOT_FOUND: { code: 101, message: '输入文件不存在' },
+  INPUT_EMPTY: { code: 102, message: '输入内容为空' },
+  INPUT_PARSE_ERROR: { code: 103, message: '输入内容解析失败' },
+
+  // 平台相关错误 (200-299)
+  PLATFORM_NOT_DETECTED: { code: 200, message: '无法自动检测平台' },
+  PLATFORM_NOT_SUPPORTED: { code: 201, message: '不支持的平台' },
+  PLATFORM_TARGET_MISSING: { code: 202, message: '缺少目标平台参数' },
+
+  // Schema 相关错误 (300-399)
+  SCHEMA_FILE_NOT_FOUND: { code: 300, message: 'Schema 文件不存在' },
+  SCHEMA_PARSE_ERROR: { code: 301, message: 'Schema JSON 解析失败' },
+  SCHEMA_INVALID: { code: 302, message: 'Schema 结构不合法' },
+
+  // 转换相关错误 (400-499)
+  CONVERT_FAILED: { code: 400, message: '转换失败' },
+  CONVERT_OUTPUT_EMPTY: { code: 401, message: '输出为空' },
+
+  // 输出相关错误 (500-599)
+  OUTPUT_WRITE_FAILED: { code: 500, message: '输出文件写入失败' },
+  OUTPUT_VALIDATION_FAILED: { code: 501, message: '输出格式校验失败' }
+};
+
+/**
+ * 输出错误信息（带错误码）
+ */
+function showError(errorInfo, extra = '') {
+  console.error(`❌ [E${errorInfo.code}] ${errorInfo.message}`);
+  if (extra) console.error(`   ${extra}`);
+}
 
 // ============================================
 // 加载核心模块（Node.js 适配）
@@ -56,6 +96,194 @@ global.UATParser = window.UATParser;
 global.UATEncoder = window.UATEncoder;
 
 // ============================================
+// Temp Files Tracking (E3)
+// ============================================
+
+const tempFiles = [];
+const TEMP_DIR = path.join(process.cwd(), '.uat-temp');
+
+/**
+ * 创建临时文件
+ */
+function createTempFile(content, suffix = '.tmp') {
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+  const tempPath = path.join(TEMP_DIR, `input_${Date.now()}${suffix}`);
+  fs.writeFileSync(tempPath, content);
+  tempFiles.push(tempPath);
+  return tempPath;
+}
+
+/**
+ * 清理所有临时文件 (E3)
+ */
+function cleanupTempFiles() {
+  if (tempFiles.length > 0) {
+    for (const file of tempFiles) {
+      try {
+        fs.unlinkSync(file);
+      } catch (e) {
+        // 忽略删除失败
+      }
+    }
+    tempFiles.length = 0;
+  }
+
+  // 清理临时目录（如果为空）
+  try {
+    if (fs.existsSync(TEMP_DIR)) {
+      const remaining = fs.readdirSync(TEMP_DIR);
+      if (remaining.length === 0) {
+        fs.rmSync(TEMP_DIR, { recursive: true });
+      }
+    }
+  } catch (e) {
+    // 忽略
+  }
+}
+
+// 程序退出时自动清理 (E3)
+process.on('exit', cleanupTempFiles);
+process.on('SIGINT', () => {
+  cleanupTempFiles();
+  process.exit(0);
+});
+
+// ============================================
+// Platform Detection with Confidence (E4)
+// ============================================
+
+/**
+ * 平台检测置信度计算
+ * @param {string} content 输入内容
+ * @returns {Object} { platform, confidence }
+ */
+function detectPlatformWithConfidence(content) {
+  const result = {
+    platform: 'plain',
+    confidence: 0,
+    matches: []
+  };
+
+  // 各平台检测规则和权重
+  const platformRules = [
+    { name: 'dify', patterns: ['dify_version', 'app:', 'nodes:', 'edges:'], weight: 1 },
+    { name: 'openclaw', patterns: ['# Identity', '# Soul', '# Skill', 'Name:'], weight: 1.2 },
+    { name: 'hermes', patterns: ['hermes_version', 'agent:', 'model:', 'soul:'], weight: 1.1 },
+    { name: 'cursor', patterns: ['.cursorrules', '# Rules', '## Code', '- Always'], weight: 0.9 },
+    { name: 'windsurf', patterns: ['.windsurfrules', '## Identity', '## Workflow'], weight: 0.9 },
+    { name: 'claude', patterns: ['---', 'name:', 'description:', '# Instructions'], weight: 0.8 },
+    { name: 'fastgpt', patterns: ['appConfig', 'chatConfig', 'workflow', '"nodes":'], weight: 1.3 },
+    { name: 'flowise', patterns: ['"nodes":', '"edges":', 'ChatOpenAI', 'LLMChain'], weight: 1.2 },
+    { name: 'copilot', patterns: ['# GitHub Copilot', '## Instructions', 'Core Principles'], weight: 0.8 },
+    { name: 'codex', patterns: ['# Agent Identity', '## Skills', '## Memory', 'AGENTS.md'], weight: 0.9 },
+    { name: 'zed', patterns: ['# Zed', '## Rules', '## Settings', '## Identity'], weight: 0.9 }
+  ];
+
+  // 检测每个平台
+  for (const rule of platformRules) {
+    let matchCount = 0;
+    for (const pattern of rule.patterns) {
+      if (content.includes(pattern)) {
+        matchCount++;
+        result.matches.push({ platform: rule.name, pattern, matched: true });
+      }
+    }
+
+    if (matchCount > 0) {
+      const score = (matchCount / rule.patterns.length) * rule.weight;
+      if (score > result.confidence) {
+        result.confidence = score;
+        result.platform = rule.name;
+      }
+    }
+  }
+
+  // 使用内置检测器进行验证
+  const detected = window.UATDetector?.detectPlatform?.(content);
+  if (detected && detected !== 'plain') {
+    // 如果内置检测器结果不同，降低置信度但优先使用内置结果
+    if (detected !== result.platform) {
+      result.confidence *= 0.5;
+      result.platform = detected;
+    } else {
+      // 一致时提高置信度
+      result.confidence = Math.min(result.confidence + 0.2, 1);
+    }
+  }
+
+  // 置信度阈值处理
+  if (result.confidence < 0.3) {
+    result.confidence = 0;
+    result.platform = 'plain';
+  }
+
+  return result;
+}
+
+// ============================================
+// Output Validation (E5)
+// ============================================
+
+/**
+ * 验证输出文件
+ * @param {Object} files 输出文件集合 { path: content }
+ * @param {string} target 目标平台
+ * @returns {Object} { valid, errors }
+ */
+function validateOutput(files, target) {
+  const result = {
+    valid: true,
+    errors: [],
+    fileCount: Object.keys(files).length
+  };
+
+  // 基本检查
+  if (result.fileCount === 0) {
+    result.valid = false;
+    result.errors.push('输出文件为空');
+    return result;
+  }
+
+  // 平台特定检查
+  const requiredPatterns = {
+    dify: ['dify_version'],
+    openclaw: ['# Identity', '# Soul'],
+    hermes: ['hermes_version'],
+    cursor: ['# Cursor'],
+    windsurf: ['# Windsurf'],
+    claude: ['---', '# Instructions'],
+    fastgpt: ['"appConfig"', '"chatConfig"'],
+    flowise: ['"nodes"', '"edges"'],
+    copilot: ['# GitHub Copilot'],
+    codex: ['---', 'name:'],
+    zed: ['# Zed']
+  };
+
+  const patterns = requiredPatterns[target] || [];
+
+  for (const [filePath, content] of Object.entries(files)) {
+    // 检查文件不为空
+    if (!content || content.trim().length === 0) {
+      result.errors.push(`文件 ${filePath} 内容为空`);
+      result.valid = false;
+      continue;
+    }
+
+    // 检查平台特征模式
+    for (const pattern of patterns) {
+      if (!content.includes(pattern)) {
+        result.errors.push(`文件 ${filePath} 缺少平台特征: ${pattern}`);
+        // 不标记为无效，只是警告
+      }
+    }
+  }
+
+  return result;
+}
+
+// ============================================
 // CLI 参数解析
 // ============================================
 
@@ -76,28 +304,41 @@ function parseArgs(args) {
 
 function showHelp() {
   console.log(`
-UAT CLI - Agent Config Converter v1.0
+UAT CLI - Agent Config Converter v1.1
 
 用法:
-  uat parse --input <file> [--platform <name>]  解析配置生成 Schema
-  uat convert --schema <file> --target <platform> 转换 Schema 到目标平台
-  uat platforms                                  列出支持的平台
-  uat detect --input <file>                      自动检测平台
-  uat help                                       显示帮助
+  uat parse --input <file> [--platform <name>]     解析配置文件生成 Schema
+  uat parse --content <string> [--platform <name>] 直接解析内容字符串 (E1)
+  uat convert --schema <file> --target <platform>  转换 Schema 到目标平台
+  uat platforms                                    列出支持的平台
+  uat detect --input <file>                        自动检测文件平台
+  uat detect --content <string>                    直接检测内容平台 (E1)
+  uat help                                         显示帮助
 
 选项:
   --input <path>          输入文件路径
+  --content <string>      直接传入内容字符串 (E1 新增)
   --platform <name>       源平台名称（可选，默认自动检测）
   --schema <path>         Schema JSON 文件路径
   --target <platform>     目标平台名称
   --output <path>         输出文件路径
   --output-dir <path>     输出目录
+  --validate              校验输出格式 (E5 新增)
+  --confidence            显示检测置信度 (E4 新增)
+
+新增功能 (Phase 2 E系列优化):
+  E1: --content 参数支持直接传入内容
+  E2: 统一错误码系统
+  E3: 临时文件自动清理
+  E4: 平台检测置信度显示
+  E5: 输出格式校验
 
 示例:
   uat parse --input dify.yaml --platform dify
+  uat parse --content "dify_version: 0.1" --platform dify
   uat parse --input config.json                          # 自动检测平台
-  uat convert --schema schema.json --target cursor
-  uat convert --schema schema.json --target claude --output-dir ./output
+  uat convert --schema schema.json --target cursor --validate
+  uat detect --input config.yaml --confidence
 
 支持平台: dify, openclaw, hermes, cursor, windsurf, claude, fastgpt, flowise, copilot, codex, zed
 
@@ -115,53 +356,74 @@ UAT CLI - Agent Config Converter v1.0
  */
 function parseCommand(args) {
   const inputPath = args.input;
+  const contentDirect = args.content; // E1: 直接内容
   const platform = args.platform;
   const outputPath = args.output;
+  const showConfidence = args.confidence; // E4
 
-  if (!inputPath) {
-    console.error('❌ 错误: 请提供 --input 参数');
-    process.exit(1);
+  // E1: 支持 --content 直接传入内容
+  let content;
+  let sourceLabel;
+
+  if (contentDirect) {
+    // 直接传入内容
+    content = contentDirect;
+    sourceLabel = 'content string';
+  } else if (inputPath) {
+    // 从文件读取
+    if (!fs.existsSync(inputPath)) {
+      showError(ErrorCodes.INPUT_FILE_NOT_FOUND, inputPath);
+      process.exit(ErrorCodes.INPUT_FILE_NOT_FOUND.code);
+    }
+    content = fs.readFileSync(inputPath, 'utf-8');
+    sourceLabel = inputPath;
+  } else {
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --input 或 --content 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
   }
 
-  // 读取输入内容
-  let content;
-  let actualPath = inputPath;
-
-  if (fs.existsSync(inputPath)) {
-    content = fs.readFileSync(inputPath, 'utf-8');
-  } else {
-    // 可能是直接提供的内容（用于 skill 调用）
-    content = inputPath;
-    // 写入临时文件
-    const tempDir = path.join(process.cwd(), '.uat-temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    actualPath = path.join(tempDir, 'input.tmp');
-    fs.writeFileSync(actualPath, content);
+  // 检查内容不为空
+  if (!content || content.trim().length === 0) {
+    showError(ErrorCodes.INPUT_EMPTY);
+    process.exit(ErrorCodes.INPUT_EMPTY.code);
   }
 
   // 自动检测平台（如果未指定）
   let detectedPlatform = platform;
+  let detectionResult = null;
+
   if (!detectedPlatform) {
-    const detection = window.UATDetector?.detectPlatform?.(content);
-    if (detection) {
-      detectedPlatform = detection;  // detectPlatform 返回字符串
-      console.log(`🔍 自动检测平台: ${detectedPlatform}`);
+    detectionResult = detectPlatformWithConfidence(content);
+    detectedPlatform = detectionResult.platform;
+
+    if (showConfidence) {
+      console.log('🔍 检测详情:');
+      console.log(`  平台: ${detectedPlatform}`);
+      console.log(`  置信度: ${(detectionResult.confidence * 100).toFixed(1)}%`);
+      if (detectionResult.matches.length > 0) {
+        console.log('  匹配模式:');
+        detectionResult.matches.slice(0, 5).forEach(m => {
+          console.log(`    - ${m.platform}: "${m.pattern}"`);
+        });
+      }
     } else {
-      console.error('❌ 无法自动检测平台，请使用 --platform 指定');
+      console.log(`🔍 自动检测平台: ${detectedPlatform}`);
+    }
+
+    if (detectedPlatform === 'plain') {
+      showError(ErrorCodes.PLATFORM_NOT_DETECTED, '请使用 --platform 手动指定');
       showPlatformsBrief();
-      process.exit(1);
+      process.exit(ErrorCodes.PLATFORM_NOT_DETECTED.code);
     }
   }
 
   // 执行解析
   try {
-    const schema = window.UATParser?.runParserPool?.(detectedPlatform, content);
+    const schema = window.UATParser?.runParserPool?.(content, detectedPlatform);
 
     if (!schema) {
-      console.error('❌ 解析失败: 无法生成 Schema');
-      process.exit(1);
+      showError(ErrorCodes.INPUT_PARSE_ERROR, '无法生成 Schema');
+      process.exit(ErrorCodes.INPUT_PARSE_ERROR.code);
     }
 
     // 输出结果
@@ -172,6 +434,7 @@ function parseCommand(args) {
       console.log(`✅ Schema 已保存到: ${outputPath}`);
     } else {
       console.log('✅ 解析成功');
+      console.log(`来源: ${sourceLabel}`);
       console.log(`平台: ${detectedPlatform}`);
       console.log('Schema:');
       console.log(schemaJson);
@@ -180,8 +443,8 @@ function parseCommand(args) {
     return schema;
 
   } catch (err) {
-    console.error(`❌ 解析失败: ${err.message}`);
-    process.exit(1);
+    showError(ErrorCodes.INPUT_PARSE_ERROR, err.message);
+    process.exit(ErrorCodes.INPUT_PARSE_ERROR.code);
   }
 }
 
@@ -192,41 +455,66 @@ function convertCommand(args) {
   const schemaPath = args.schema;
   const target = args.target;
   const outputDir = args['output-dir'] || process.cwd();
+  const shouldValidate = args.validate; // E5
 
   if (!schemaPath) {
-    console.error('❌ 错误: 请提供 --schema 参数');
-    process.exit(1);
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --schema 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
   }
 
   if (!target) {
-    console.error('❌ 错误: 请提供 --target 参数');
-    process.exit(1);
+    showError(ErrorCodes.PLATFORM_TARGET_MISSING);
+    showPlatformsBrief();
+    process.exit(ErrorCodes.PLATFORM_TARGET_MISSING.code);
   }
 
   // 读取 Schema
   let schema;
   try {
+    if (!fs.existsSync(schemaPath)) {
+      showError(ErrorCodes.SCHEMA_FILE_NOT_FOUND, schemaPath);
+      process.exit(ErrorCodes.SCHEMA_FILE_NOT_FOUND.code);
+    }
     const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
     schema = JSON.parse(schemaContent);
   } catch (err) {
-    console.error(`❌ Schema 文件读取失败: ${err.message}`);
-    process.exit(1);
+    showError(ErrorCodes.SCHEMA_PARSE_ERROR, err.message);
+    process.exit(ErrorCodes.SCHEMA_PARSE_ERROR.code);
   }
 
   // 执行转换
   try {
     const encoder = window.UATEncoder?.getEncoder?.(target);
     if (!encoder) {
-      console.error(`❌ 不支持的平台: ${target}`);
+      showError(ErrorCodes.PLATFORM_NOT_SUPPORTED, target);
       showPlatformsBrief();
-      process.exit(1);
+      process.exit(ErrorCodes.PLATFORM_NOT_SUPPORTED.code);
     }
 
     const files = encoder.encodeToFiles?.(schema);
 
     if (!files || Object.keys(files).length === 0) {
-      console.error('❌ 转换失败: 无法生成文件');
-      process.exit(1);
+      showError(ErrorCodes.CONVERT_OUTPUT_EMPTY);
+      process.exit(ErrorCodes.CONVERT_OUTPUT_EMPTY.code);
+    }
+
+    // E5: 输出格式校验
+    if (shouldValidate) {
+      const validation = validateOutput(files, target);
+      console.log('📋 输出校验:');
+      console.log(`  文件数量: ${validation.fileCount}`);
+
+      if (validation.errors.length > 0) {
+        console.log('  ⚠️  警告:');
+        validation.errors.forEach(err => console.log(`    - ${err}`));
+      }
+
+      if (validation.valid) {
+        console.log('  ✅ 输出格式有效');
+      } else {
+        showError(ErrorCodes.OUTPUT_VALIDATION_FAILED);
+        process.exit(ErrorCodes.OUTPUT_VALIDATION_FAILED.code);
+      }
     }
 
     // 输出结果
@@ -239,15 +527,19 @@ function convertCommand(args) {
       const fullPath = path.join(outputDir, filePath);
       const lineCount = content.split('\n').length;
 
-      // 确保目录存在
+      // 保目录存在
       const dir = path.dirname(fullPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
 
       // 写入文件
-      fs.writeFileSync(fullPath, content);
-      console.log(`  ✓ ${filePath} (${lineCount} lines)`);
+      try {
+        fs.writeFileSync(fullPath, content);
+        console.log(`  ✓ ${filePath} (${lineCount} lines)`);
+      } catch (err) {
+        showError(ErrorCodes.OUTPUT_WRITE_FAILED, `${filePath}: ${err.message}`);
+      }
     });
 
     console.log(`\n共 ${Object.keys(files).length} 个文件已保存`);
@@ -255,8 +547,8 @@ function convertCommand(args) {
     return files;
 
   } catch (err) {
-    console.error(`❌ 转换失败: ${err.message}`);
-    process.exit(1);
+    showError(ErrorCodes.CONVERT_FAILED, err.message);
+    process.exit(ErrorCodes.CONVERT_FAILED.code);
   }
 }
 
@@ -298,31 +590,50 @@ function platformsCommand() {
  */
 function detectCommand(args) {
   const inputPath = args.input;
+  const contentDirect = args.content; // E1
+  const showConfidence = args.confidence; // E4
 
-  if (!inputPath) {
-    console.error('❌ 错误: 请提供 --input 参数');
-    process.exit(1);
-  }
-
+  // E1: 支持 --content
   let content;
-  if (fs.existsSync(inputPath)) {
+
+  if (contentDirect) {
+    content = contentDirect;
+  } else if (inputPath) {
+    if (!fs.existsSync(inputPath)) {
+      showError(ErrorCodes.INPUT_FILE_NOT_FOUND, inputPath);
+      process.exit(ErrorCodes.INPUT_FILE_NOT_FOUND.code);
+    }
     content = fs.readFileSync(inputPath, 'utf-8');
   } else {
-    content = inputPath;
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --input 或 --content 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
   }
 
-  const detection = window.UATDetector?.detectPlatform?.(content);
+  // E4: 使用增强检测
+  const detection = detectPlatformWithConfidence(content);
 
-  if (detection) {
-    console.log('✅ 检测结果:');
-    console.log(`  平台: ${detection}`);  // detectPlatform 返回字符串
-  } else {
-    console.log('❌ 无法检测平台');
+  console.log('✅ 检测结果:');
+  console.log(`  平台: ${detection.platform}`);
+
+  if (showConfidence) {
+    console.log(`  置信度: ${(detection.confidence * 100).toFixed(1)}%`);
+
+    if (detection.matches.length > 0) {
+      console.log('  匹配特征:');
+      detection.matches.slice(0, 10).forEach(m => {
+        console.log(`    - [${m.platform}] "${m.pattern}"`);
+      });
+    }
+  }
+
+  if (detection.platform === 'plain') {
     console.log('');
+    console.log('⚠️  提示: 未检测到特定平台格式');
     console.log('可能原因:');
     console.log('  - 配置格式不标准');
     console.log('  - 缺少平台特征字段');
-    console.log('  - 请使用 --platform 手动指定');
+    console.log('请使用 --platform 手动指定');
+    showPlatformsBrief();
   }
 }
 
