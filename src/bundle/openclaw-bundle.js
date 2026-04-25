@@ -603,37 +603,58 @@ function encodeOpenClawMemoryMD(schema) {
     sections.push('');
   }
 
-  // 期记忆 (longTermMemory 是字符串)
+  // 长期记忆 (longTermMemory 支持字符串或数组格式)
   const longTermMemory = schema.memory.longTermMemory || '';
-  if (longTermMemory.length > 0) {
+  const isLongTermMemoryArray = Array.isArray(longTermMemory);
+  const hasMemory = isLongTermMemoryArray ? longTermMemory.length > 0 : (longTermMemory && longTermMemory.length > 0);
+
+  if (hasMemory) {
     sections.push('## Stored Memories');
     sections.push('');
-    // 解析 ### 标题格式的记忆条目
-    const memSections = longTermMemory.split(/\n### /);
-    for (let i = 0; i < memSections.length; i++) {
-      const section = memSections[i];
-      if (i === 0 && !section.startsWith('###')) {
-        // 第一段可能是前言，跳过或作为整体
-        if (section.trim()) {
-          sections.push(section.trim());
-          sections.push('');
-        }
-      } else {
-        const lines = section.split('\n');
-        const topic = lines[0].replace(/^### /, '').trim();
-        const content = lines.slice(1).join('\n').trim();
-        sections.push(`### ${topic || 'Memory Entry'}`);
+
+    if (isLongTermMemoryArray) {
+      // 数组格式：结构化记忆
+      for (const mem of longTermMemory) {
+        const topic = mem.type || mem.id || 'Memory Entry';
+        const content = mem.content || '';
+        const importance = mem.importance || 0.8;
+
+        sections.push(`### ${topic}`);
         sections.push('');
         if (content) {
           sections.push(content);
+        }
+        sections.push(`*Importance: ${importance}*`);
+        sections.push('');
+      }
+    } else {
+      // 字符串格式：兼容旧版
+      const memSections = longTermMemory.split(/\n### /);
+      for (let i = 0; i < memSections.length; i++) {
+        const section = memSections[i];
+        if (i === 0 && !section.startsWith('###')) {
+          if (section.trim()) {
+            sections.push(section.trim());
+            sections.push('');
+          }
+        } else {
+          const lines = section.split('\n');
+          const topic = lines[0].replace(/^### /, '').trim();
+          const content = lines.slice(1).join('\n').trim();
+          sections.push(`### ${topic || 'Memory Entry'}`);
           sections.push('');
+          if (content) {
+            sections.push(content);
+            sections.push('');
+          }
         }
       }
     }
   }
 
   // 空记忆说明
-  if (!schema.memory.knowledgeBaseRef?.length && !longTermMemory.length) {
+  const hasKnowledgeBase = schema.memory.knowledgeBaseRef?.length > 0;
+  if (!hasMemory && !hasKnowledgeBase) {
     sections.push('## Memory Status');
     sections.push('');
     sections.push('No long-term memories stored yet.');
