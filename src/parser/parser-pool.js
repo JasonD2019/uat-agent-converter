@@ -1,7 +1,27 @@
 /**
- * UAT 多平台解析器集群 v2.0 - Parser Pool Enhanced
+ * UAT 多平台解析器集群 v2.1 - Parser Pool Enhanced
  * 模块5：各平台原始配置 → UAT-Schema v2.0 完整解析
+ * F系列优化：集成 memory-parser.js，支持 memoryEntries 结构
  */
+
+// ============================================
+// 加载扩展模块（Node.js/浏览器兼容）
+// ============================================
+
+// 确保 UATCore 已加载
+if (typeof window !== 'undefined' && window.UATCore) {
+  // 浏览器环境已加载
+} else if (typeof UATCore === 'undefined') {
+  // Node.js 环境尝试加载
+  try {
+    const path = require('path');
+    UATCore = require(path.resolve(__dirname, '../core/schema.js'));
+    UATSchemaExtensions = require(path.resolve(__dirname, '../core/schema-extensions.js'));
+    UATMemoryParser = require(path.resolve(__dirname, './memory-parser.js'));
+  } catch (e) {
+    // 模块可能通过其他方式加载
+  }
+}
 
 // ============================================
 // 解析器统一调度器
@@ -50,6 +70,19 @@ function runParserPool(cleanText, platformCode) {
   }
 
   UATCore.fillSchemaDefaultValues(schema);
+
+  // F系列优化：扩展 Schema 并迁移记忆
+  if (typeof UATSchemaExtensions !== 'undefined') {
+    UATSchemaExtensions.extendSchemaFull(schema);
+  }
+
+  // F系列优化：使用统一记忆解析器补充 memoryEntries
+  if (typeof UATMemoryParser !== 'undefined' && schema.memory.memoryEntries.length === 0) {
+    const entries = UATMemoryParser.parseMemoryToEntries(cleanText, platformCode, schema);
+    if (entries.length > 0) {
+      schema.memory.memoryEntries = entries;
+    }
+  }
 
   if (!UATCore.checkSchemaValid(schema)) {
     throw new Error('解析结果结构不合法');

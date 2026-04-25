@@ -64,6 +64,7 @@ if (typeof window === 'undefined') {
 // 加载模块顺序（按依赖关系）
 const modulePaths = [
   '../core/schema.js',
+  '../core/schema-extensions.js',    // F1: Schema扩展
   '../bundle/bundle-base.js',
   '../bundle/bundle-manager.js',
   '../bundle/openclaw-bundle.js',
@@ -77,10 +78,15 @@ const modulePaths = [
   '../bundle/codex-bundle.js',
   '../bundle/copilot-bundle.js',
   '../bundle/zed-bundle.js',
+  '../bundle/knowledge-packager.js',  // F1: 知识库打包
+  '../bundle/skills-packager.js',     // F4: 技能打包
   '../detector/platform-detector.js',
   '../parser/parser-pool.js',
+  '../parser/memory-parser.js',       // F2/F3: 记忆解析
   '../encoder/encoder-pool.js',
-  '../encoder/encoder-registry.js'
+  '../encoder/encoder-registry.js',
+  '../guard/secrets-sanitizer.js',    // F5: 敏感信息清理
+  '../export/integrity-report.js'     // F6: 完整性报告
 ];
 
 // 加载每个模块
@@ -94,6 +100,12 @@ global.BundleBase = window.BundleBase;
 global.UATDetector = window.UATDetector;
 global.UATParser = window.UATParser;
 global.UATEncoder = window.UATEncoder;
+global.UATSchemaExtensions = window.UATSchemaExtensions;
+global.UATMemoryParser = window.UATMemoryParser;
+global.UATKnowledgePackager = window.UATKnowledgePackager;
+global.UATSkillsPackager = window.UATSkillsPackager;
+global.UATSecretsSanitizer = window.UATSecretsSanitizer;
+global.UATIntegrityReport = window.UATIntegrityReport;
 
 // ============================================
 // Temp Files Tracking (E3)
@@ -304,7 +316,7 @@ function parseArgs(args) {
 
 function showHelp() {
   console.log(`
-UAT CLI - Agent Config Converter v1.1
+UAT CLI - Agent Config Converter v1.2 (F系列优化)
 
 用法:
   uat parse --input <file> [--platform <name>]     解析配置文件生成 Schema
@@ -313,6 +325,7 @@ UAT CLI - Agent Config Converter v1.1
   uat platforms                                    列出支持的平台
   uat detect --input <file>                        自动检测文件平台
   uat detect --content <string>                    直接检测内容平台 (E1)
+  uat integrity --schema <file>                    生成完整性报告 (F6)
   uat help                                         显示帮助
 
 选项:
@@ -325,20 +338,24 @@ UAT CLI - Agent Config Converter v1.1
   --output-dir <path>     输出目录
   --validate              校验输出格式 (E5 新增)
   --confidence            显示检测置信度 (E4 新增)
+  --integrity             生成完整性报告 (F6 新增)
+  --pack-kb               打包知识库内容 (F1 新增)
+  --pack-skills           打包技能信息 (F4 新增)
+  --sanitize              清理敏感信息 (F5 新增)
+  --sanitize-strategy     清理策略: mask | remove | placeholder (默认 mask)
+  --format                报告格式: json | markdown | yaml | html (默认 markdown)
 
-新增功能 (Phase 2 E系列优化):
-  E1: --content 参数支持直接传入内容
-  E2: 统一错误码系统
-  E3: 临时文件自动清理
-  E4: 平台检测置信度显示
-  E5: 输出格式校验
+新增功能:
+  Phase 2 E系列: --content, 错误码, 临时清理, 检测置信度, 输出校验
+  Phase 2 F系列: 知识库打包, 记忆结构化, 技能打包, 敏感清理, 完整性报告
 
 示例:
   uat parse --input dify.yaml --platform dify
-  uat parse --content "dify_version: 0.1" --platform dify
+  uat parse --content "dify_version: 0.1" --platform dify --pack-kb
   uat parse --input config.json                          # 自动检测平台
-  uat convert --schema schema.json --target cursor --validate
+  uat convert --schema schema.json --target cursor --validate --sanitize
   uat detect --input config.yaml --confidence
+  uat integrity --schema schema.json --format markdown
 
 支持平台: dify, openclaw, hermes, cursor, windsurf, claude, fastgpt, flowise, copilot, codex, zed
 
@@ -360,6 +377,10 @@ function parseCommand(args) {
   const platform = args.platform;
   const outputPath = args.output;
   const showConfidence = args.confidence; // E4
+  const packKB = args['pack-kb']; // F1
+  const packSkills = args['pack-skills']; // F4
+  const sanitize = args.sanitize; // F5
+  const sanitizeStrategy = args['sanitize-strategy'] || 'mask'; // F5
 
   // E1: 支持 --content 直接传入内容
   let content;
@@ -426,6 +447,54 @@ function parseCommand(args) {
       process.exit(ErrorCodes.INPUT_PARSE_ERROR.code);
     }
 
+    // F1: 知识库打包
+    if (packKB && window.UATKnowledgePackager) {
+      console.log('📦 打包知识库...');
+      const kbResult = window.UATKnowledgePackager.packKnowledgeBase(schema);
+      if (kbResult.packed) {
+        console.log(`  ✓ 数据集: ${kbResult.stats.datasets}`);
+        console.log(`  ✓ 文档: ${kbResult.stats.documents}`);
+        console.log(`  ✓ Q&A: ${kbResult.stats.qaPairs}`);
+        if (kbResult.warnings.length > 0) {
+          kbResult.warnings.forEach(w => console.log(`  ⚠ ${w}`));
+        }
+      } else {
+        console.log('  ⚠ 未找到知识库内容');
+      }
+    }
+
+    // F4: 技能打包
+    if (packSkills && window.UATSkillsPackager) {
+      console.log('🎯 打包技能...');
+      const skillsResult = window.UATSkillsPackager.packSkills(schema);
+      if (skillsResult.packed) {
+        console.log(`  ✓ 技能: ${skillsResult.stats.skills}`);
+        console.log(`  ✓ 能力: ${skillsResult.stats.capabilities}`);
+        console.log(`  ✓ 专业化: ${skillsResult.stats.specializations}`);
+        if (skillsResult.stats.inferredSkills > 0) {
+          console.log(`  ✓ 推断技能: ${skillsResult.stats.inferredSkills}`);
+        }
+      } else {
+        console.log('  ⚠ 未找到技能信息');
+      }
+    }
+
+    // F5: 敏感信息清理
+    if (sanitize && window.UATSecretsSanitizer) {
+      console.log('🔐 检查敏感信息...');
+      const sanitizeResult = window.UATSecretsSanitizer.sanitizeSecrets(schema, {
+        strategy: sanitizeStrategy
+      });
+      if (sanitizeResult.stats.total > 0) {
+        console.log(`  ✓ 检测到 ${sanitizeResult.stats.total} 个敏感项`);
+        console.log(`  ✓ 使用 ${sanitizeStrategy} 策略清理`);
+        // 更新 schema 为清理后的版本
+        Object.assign(schema, sanitizeResult.sanitized);
+      } else {
+        console.log('  ✓ 未检测到敏感信息');
+      }
+    }
+
     // 输出结果
     const schemaJson = JSON.stringify(schema, null, 2);
 
@@ -456,6 +525,10 @@ function convertCommand(args) {
   const target = args.target;
   const outputDir = args['output-dir'] || process.cwd();
   const shouldValidate = args.validate; // E5
+  const sanitize = args.sanitize; // F5
+  const sanitizeStrategy = args['sanitize-strategy'] || 'mask'; // F5
+  const generateIntegrity = args.integrity; // F6
+  const format = args.format || 'markdown'; // F6
 
   if (!schemaPath) {
     showError(ErrorCodes.INPUT_MISSING, '请提供 --schema 参数');
@@ -482,6 +555,21 @@ function convertCommand(args) {
     process.exit(ErrorCodes.SCHEMA_PARSE_ERROR.code);
   }
 
+  // F5: 敏感信息清理（清理源 Schema）
+  if (sanitize && window.UATSecretsSanitizer) {
+    console.log('🔐 检查源 Schema 敏感信息...');
+    const sanitizeResult = window.UATSecretsSanitizer.sanitizeSecrets(schema, {
+      strategy: sanitizeStrategy
+    });
+    if (sanitizeResult.stats.total > 0) {
+      console.log(`  ✓ 检测到 ${sanitizeResult.stats.total} 个敏感项`);
+      console.log(`  ✓ 使用 ${sanitizeStrategy} 策略清理`);
+      schema = sanitizeResult.sanitized;
+    } else {
+      console.log('  ✓ 未检测到敏感信息');
+    }
+  }
+
   // 执行转换
   try {
     const encoder = window.UATEncoder?.getEncoder?.(target);
@@ -496,6 +584,24 @@ function convertCommand(args) {
     if (!files || Object.keys(files).length === 0) {
       showError(ErrorCodes.CONVERT_OUTPUT_EMPTY);
       process.exit(ErrorCodes.CONVERT_OUTPUT_EMPTY.code);
+    }
+
+    // F5: 输出文件敏感信息清理
+    if (sanitize && window.UATSecretsSanitizer) {
+      console.log('🔐 检查输出文件敏感信息...');
+      let totalSanitized = 0;
+      for (const [filePath, content] of Object.entries(files)) {
+        const detected = window.UATSecretsSanitizer.detectSecretsInText(content);
+        if (detected.length > 0) {
+          files[filePath] = window.UATSecretsSanitizer.sanitizeText(content, sanitizeStrategy, '[REDACTED]');
+          totalSanitized += detected.length;
+        }
+      }
+      if (totalSanitized > 0) {
+        console.log(`  ✓ 清理输出文件中 ${totalSanitized} 个敏感项`);
+      } else {
+        console.log('  ✓ 输出文件无敏感信息');
+      }
     }
 
     // E5: 输出格式校验
@@ -543,6 +649,19 @@ function convertCommand(args) {
     });
 
     console.log(`\n共 ${Object.keys(files).length} 个文件已保存`);
+
+    // F6: 生成完整性报告
+    if (generateIntegrity && window.UATIntegrityReport) {
+      console.log('\n📊 生成完整性报告...');
+      const report = window.UATIntegrityReport.generateIntegrityReport(schema);
+      const reportContent = window.UATIntegrityReport.exportReport(report, format);
+
+      const reportFileName = `integrity-report.${format === 'markdown' ? 'md' : format}`;
+      const reportPath = path.join(outputDir, reportFileName);
+      fs.writeFileSync(reportPath, reportContent);
+      console.log(`  ✓ 完整性报告: ${reportFileName}`);
+      console.log(`    状态: ${report.summary.status}, 数据损失: ${report.summary.dataLoss}`);
+    }
 
     return files;
 
@@ -645,6 +764,104 @@ function showPlatformsBrief() {
 }
 
 // ============================================
+// F6: 完整性报告命令
+// ============================================
+
+/**
+ * 生成完整性报告
+ */
+function integrityCommand(args) {
+  const schemaPath = args.schema;
+  const format = args.format || 'markdown';
+  const outputPath = args.output;
+
+  if (!schemaPath) {
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --schema 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
+  }
+
+  // 读取 Schema
+  let schema;
+  try {
+    if (!fs.existsSync(schemaPath)) {
+      showError(ErrorCodes.SCHEMA_FILE_NOT_FOUND, schemaPath);
+      process.exit(ErrorCodes.SCHEMA_FILE_NOT_FOUND.code);
+    }
+    const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
+    schema = JSON.parse(schemaContent);
+  } catch (err) {
+    showError(ErrorCodes.SCHEMA_PARSE_ERROR, err.message);
+    process.exit(ErrorCodes.SCHEMA_PARSE_ERROR.code);
+  }
+
+  // 生成完整性报告
+  try {
+    console.log('📊 生成完整性报告...');
+
+    if (!window.UATIntegrityReport) {
+      showError(ErrorCodes.CONVERT_FAILED, '完整性报告模块未加载');
+      process.exit(ErrorCodes.CONVERT_FAILED.code);
+    }
+
+    const report = window.UATIntegrityReport.generateIntegrityReport(schema);
+    const reportContent = window.UATIntegrityReport.exportReport(report, format);
+
+    console.log('');
+    console.log('📋 报告摘要:');
+    console.log(`  状态: ${report.summary.status}`);
+    console.log(`  检查项: ${report.summary.totalChecks}`);
+    console.log(`  通过: ${report.summary.passed}`);
+    console.log(`  警告: ${report.summary.warnings}`);
+    console.log(`  错误: ${report.summary.errors}`);
+    console.log(`  数据损失: ${report.summary.dataLoss}`);
+
+    if (report.warnings.length > 0) {
+      console.log('');
+      console.log('⚠️  警告详情:');
+      report.warnings.slice(0, 5).forEach(w => {
+        console.log(`  - ${w.message}`);
+      });
+    }
+
+    if (report.errors.length > 0) {
+      console.log('');
+      console.log('❌ 错误详情:');
+      report.errors.slice(0, 5).forEach(e => {
+        console.log(`  - ${e.message}`);
+      });
+    }
+
+    if (report.suggestions.length > 0) {
+      console.log('');
+      console.log('💡 建议:');
+      report.suggestions.forEach(s => {
+        console.log(`  - [${s.priority}] ${s.message}`);
+      });
+    }
+
+    // 输出完整报告
+    if (outputPath) {
+      fs.writeFileSync(outputPath, reportContent);
+      console.log('');
+      console.log(`✅ 报告已保存到: ${outputPath}`);
+    } else {
+      console.log('');
+      console.log('---');
+      console.log(reportContent);
+    }
+
+    // 根据状态决定退出码
+    if (report.summary.status === 'error') {
+      process.exit(1);
+    }
+
+  } catch (err) {
+    showError(ErrorCodes.CONVERT_FAILED, err.message);
+    process.exit(ErrorCodes.CONVERT_FAILED.code);
+  }
+}
+
+// ============================================
 // 主入口
 // ============================================
 
@@ -669,6 +886,10 @@ function main() {
 
     case 'detect':
       detectCommand(options);
+      break;
+
+    case 'integrity':
+      integrityCommand(options);
       break;
 
     case 'help':
