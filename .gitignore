@@ -3,7 +3,8 @@ node_modules/
 package-lock.json
 
 # Build outputs
-dist/
+dist/*
+!dist/uat-bundle.js
 build/
 *.min.js
 *.min.css
@@ -16,7 +17,12 @@ coverage/
 .vscode/
 *.swp
 *.swo
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/uat-import/
+.claude/skills/uat-import/*
+!.claude/skills/uat-import/skill.md
 
 # OS files
 .DS_Store

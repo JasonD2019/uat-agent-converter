@@ -263,6 +263,24 @@
           <span data-i18n="clearBtn">Clear</span>
         </button>
       </div>
+      <div class="footer-divider"></div>
+      <!-- SDK/Skill Section -->
+      <div class="footer-section">
+        <div class="footer-label">
+          <i data-lucide="download" style="width:13px;height:13px;"></i>
+          <span>SDK / Skill</span>
+        </div>
+        <div class="footer-actions" style="flex-wrap:wrap;">
+          <button class="btn btn-outline" id="downloadSdkBtn">
+            <i data-lucide="file-code" style="width:13px;height:13px;"></i>
+            <span>下载 SDK Bundle</span>
+          </button>
+          <button class="btn btn-outline" id="copySkillCmdBtn">
+            <i data-lucide="clipboard" style="width:13px;height:13px;"></i>
+            <span>复制 Skill 安装命令</span>
+          </button>
+        </div>
+      </div>
     </footer>
 
   </div>
@@ -341,7 +359,6 @@
   <script src="src/detector/platform-detector.js"></script>
   <script src="src/parser/parser-pool.js"></script>
   <script src="src/parser/memory-parser.js"></script>
-  <script src="src/encoder/encoder-pool.js"></script>
   <script src="src/export/export-utils.js"></script>
   <!-- F-Series Modules -->
   <script src="src/bundle/knowledge-packager.js"></script>
@@ -362,11 +379,58 @@
   <script src="src/bundle/flowise-bundle.js"></script>
   <script src="src/bundle/copilot-bundle.js"></script>
   <script src="src/bundle/zed-bundle.js"></script>
-  <!-- Encoder Registry (after bundle modules) -->
+  <!-- Encoder Modules -->
+  <script src="src/encoder/encoder-pool.js"></script>
+  <script src="src/encoder/memory-encoder.js"></script>
+  <script src="src/encoder/knowledge-encoder.js"></script>
+  <script src="src/encoder/skills-encoder.js"></script>
+  <script src="src/encoder/mcp-encoder.js"></script>
+  <!-- Encoder Registry (after encoder modules) -->
   <script src="src/encoder/encoder-registry.js"></script>
   <!-- UI Modules -->
   <script src="src/ui/i18n.js"></script>
   <script src="src/ui/ui-controller.js"></script>
   <script src="src/guard/guard.js"></script>
+
+  <!-- SDK/Skill Button Handlers -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // SDK Download Button
+      document.getElementById('downloadSdkBtn')?.addEventListener('click', function() {
+        const link = document.createElement('a');
+        link.href = 'dist/uat-bundle.js';
+        link.download = 'uat-bundle.js';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        if (typeof showToast === 'function') {
+          showToast('SDK Bundle 下载已开始', 'success');
+        } else {
+          alert('SDK Bundle 下载已开始');
+        }
+      });
+
+      // Copy Skill Install Command Button
+      document.getElementById('copySkillCmdBtn')?.addEventListener('click', function() {
+        const installCmd = '安装 UAT skill';
+        navigator.clipboard.writeText(installCmd).then(function() {
+          if (typeof showToast === 'function') {
+            showToast('已复制: "' + installCmd + '" - 在 Agent 中输入即可安装', 'success');
+          } else {
+            alert('已复制安装命令');
+          }
+        }).catch(function() {
+          // Fallback for older browsers
+          const textArea = document.createElement('textarea');
+          textArea.value = installCmd;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          alert('已复制安装命令');
+        });
+      });
+    });
+  </script>
 </body>
 </html>

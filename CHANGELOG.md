@@ -2,6 +2,152 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.3.0] - 2026-05-06
+
+### 🎯 Production Deployment: Bundle + Skill Overhaul
+
+### Added - K-Series Production Bundle
+
+- **K1: Bundle Packaging Script** (`scripts/build-bundle.js`)
+  - UMD wrapper for Node.js and browser compatibility
+  - Core module bundling (~13 files, ~200KB)
+  - Automatic module dependency ordering
+  - Global alias linking for source compatibility
+
+- **K2: Bundle CLI Entry** (`src/cli/bundle-cli.js`)
+  - Lightweight CLI for Skill execution
+  - Commands: parse, convert, detect, platforms
+  - File and content input support
+  - Direct module references for early execution
+
+- **K3: Core Bundle** (`dist/uat-bundle.js`)
+  - Standalone executable bundle (~206KB)
+  - Dynamic loading via WebFetch from GitHub Pages
+  - Cached in `.uat-temp/` for reuse
+  - Full parse/convert/detect functionality
+
+### Changed - Skill Overhaul
+
+- **Dynamic Bundle Loading** - WebFetch from GitHub Pages
+- **One-Command Installation** - "安装UAT skill" auto-downloads
+- **Cached Bundle** - Reuse without repeated downloads
+- **Clear Platform Guidance** - Cloud platforms use Web UI
+- **Updated Skill Definition** - Complete workflow rewrite
+
+### Added - Web UI Integration
+
+- **SDK Download Button** - Download bundle.js directly
+- **Copy Skill Command Button** - Copy "安装 UAT skill" command
+- **Installation Guide** - `docs/UAT-SKILL-GUIDE.md`
+
+### Documentation
+
+- `docs/UAT-SKILL-GUIDE.md` - Installation and usage guide
+- `README.md` - Skill section added
+- `index.html` - SDK download buttons
+
+### Deployment
+
+- Bundle hosted on GitHub Pages (`dist/uat-bundle.js`)
+- Skill definition hosted on GitHub Pages
+- End-to-end validation completed
+
+---
+
+## [v1.2.0] - 2026-04-25
+
+### 🎯 Phase 3: Output Encoding & MCP Preservation
+
+### Added - G-Series Output Encoders
+
+- **G1: Memory Encoder** (`src/encoder/memory-encoder.js`)
+  - Encode memoryEntries for all platforms
+  - YAML format: Dify, Hermes
+  - JSON format: FastGPT, Flowise, OpenClaw
+  - JSON code block: Claude, Zed
+  - Markdown table: Codex
+  - Markdown list: Cursor, Windsurf, Copilot
+
+- **G2: Knowledge Encoder** (`src/encoder/knowledge-encoder.js`)
+  - Encode knowledgeBaseContent for A/B platforms
+  - Dify YAML format with datasets
+  - FastGPT JSON format with datasets/documents
+  - OpenClaw JSON + Markdown separation
+  - Hermes YAML + Markdown separation
+  - CSV export format
+
+- **G3: Skills Encoder** (`src/encoder/skills-encoder.js`)
+  - Encode skillsLayer for all platforms
+  - Hermes YAML with full attributes
+  - OpenClaw SKILLS.md independent file
+  - Codex AGENTS.md Skills section
+  - Markdown list/table formats
+  - Category grouping and level stars
+
+- **Bundle Integration** - Modified 11 Bundle files
+  - Added encoder helper functions to each Bundle
+  - Integrated memory/knowledge/skills encoding calls
+  - OpenClaw: Added SKILLS.md file output
+  - Hermes: Added skills.yaml output
+  - All bundles: memoryEntries encoding support
+
+### Added - H-Series MCP Preservation
+
+- **MCP Encoder** (`src/encoder/mcp-encoder.js`)
+  - Complete MCP configuration preservation
+  - Environment variable sanitization (secrets marked)
+  - Migration hints per platform
+  - Platform-specific output formats:
+    - Claude: settings.json mcpServers format
+    - Cursor/Windsurf: mcp.json format
+    - OpenClaw: JSON with migration notes
+    - Hermes: YAML server list
+    - Zed: settings.json mcp_servers
+  - Migration report generation
+
+### Added - I-Series CLI Batch Processing
+
+- **Batch Detect** - `uat detect --input-dir <path>`
+  - Recursive directory scanning
+  - File pattern matching (*.yaml,*.json,*.md)
+  - Platform distribution statistics
+  - Confidence display for each file
+
+- **Batch Parse** - `uat parse --input-dir <path>`
+  - Multi-file parsing to Schema
+  - Optional platform specification
+  - Output directory for schemas
+  - Pack KB/Skills during batch parse
+
+- **Batch Convert** - `uat convert --schema-dir <path>`
+  - Multi-schema conversion
+  - Parallel processing support
+  - Output directory structure
+  - Sanitization option
+
+- **New Parameters**
+  - `--input-dir <path>` - Input directory
+  - `--schema-dir <path>` - Schema directory
+  - `--output-dir <path>` - Output directory
+  - `--recursive` - Recursive subdirectory scan
+  - `--pattern <glob>` - File matching pattern
+  - `--parallel <n>` - Parallel processing count
+
+### Added - J-Series UI Controller Extension
+
+- **Pack KB Button** - UI integration for knowledge packager
+- **Pack Skills Button** - UI integration for skills packager
+- **Sanitize Toggle** - Toggle for secrets sanitization
+- **Integrity Report Button** - Generate and display integrity report
+- **Report Preview** - Visual integrity report in Schema panel
+
+### Changed
+
+- **CLI Version** - Updated to v1.2.0
+- **Help Documentation** - Added batch processing examples
+- **index.html** - Added encoder script references
+- **test-node.js** - 157 tests passing
+
 ## [v1.1.0] - 2026-04-27
 
 ### 🎯 Phase 2: Data Migration & CLI Optimization

@@ -90,6 +90,37 @@ For AI assistants using the Skill:
 
 ---
 
+## Skill Installation (One-Command Conversion)
+
+For Claude Code, Cursor, Windsurf, Codex, and Copilot users.
+
+### Install
+
+In your Agent, say:
+```
+安装 UAT skill
+```
+
+### Usage
+
+```
+从 Dify 导入到 Cursor
+转换这个 agent 到 Claude 格式
+把 ./config.yml 转成 Windsurf
+```
+
+### SDK Bundle
+
+Download standalone SDK for local Node.js execution:
+- URL: https://jasond2019.github.io/uat-agent-converter/dist/uat-bundle.js (~200KB)
+- CLI: `node uat-bundle.js parse --input <file> --platform <name>`
+
+**Note**: Cloud platform users (Dify, FastGPT, Flowise) should use the Web UI.
+
+See [docs/UAT-SKILL-GUIDE.md](docs/UAT-SKILL-GUIDE.md) for detailed instructions.
+
+---
+
 ## Features
 
 - **12 Platform Support** — Convert between Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude Code, FastGPT, Flowise, Copilot, Codex, Zed, and more
