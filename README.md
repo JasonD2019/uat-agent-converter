@@ -22,14 +22,14 @@ For Claude Code, Cursor, Windsurf, Codex, Copilot users.
 
 **Step 1: Install Skill**
 ```
-请从 https://jasond2019.github.io/uat-agent-converter/.claude/skills/uat-import/skill.md 下载 uat-import skill
+Please download uat-import skill from https://jasond2019.github.io/uat-agent-converter/.claude/skills/uat-import/skill.md
 ```
 
 **Step 2: Execute Conversion**
 ```
-从 Dify 导入到 Cursor
-把 ./dify.yml 转成 Windsurf
-convert ./hermes/config.yaml to Claude
+Convert Dify agent to Cursor
+Convert ./dify.yml to Windsurf
+Convert ./hermes/config.yaml to Claude
 ```
 
 Agent automatically: Reads config → Detects platform → Parses to Schema → Converts → Saves files
