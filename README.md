@@ -2,7 +2,7 @@
 
 > Cross-Platform AI Agent Config Converter | 跨平台 AI Agent 配置转换器
 
-**[中文文档](README_CN.md)** | **English** | **[🚀 开始转换](https://jasond2019.github.io/uat-agent-converter/)**
+**[中文文档](README_CN.md)** | **English** | **[🚀 Start Converting](https://jasond2019.github.io/uat-agent-converter/)**
 
 [![GitHub](https://img.shields.io/badge/GitHub-JasonD2019/uat--agent--converter-blue?logo=github)](https://github.com/JasonD2019/uat-agent-converter)
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-green?logo=github)](https://jasond2019.github.io/uat-agent-converter/)
@@ -14,41 +14,41 @@
 
 ---
 
-## 快速上手
+## Quick Start
 
-### 方式一：Agent 自动转化 🤖
+### Option 1: Agent Auto-Conversion 🤖
 
-适用于 Claude Code、Cursor、Windsurf、Codex、Copilot 等本地 Agent 用户。
+For Claude Code, Cursor, Windsurf, Codex, Copilot users.
 
-**第一步：安装 Skill**
+**Step 1: Install Skill**
 ```
-安装 UAT skill
+请从 https://jasond2019.github.io/uat-agent-converter/.claude/skills/uat-import/skill.md 下载 uat-import skill
 ```
 
-**第二步：执行转化**
+**Step 2: Execute Conversion**
 ```
 从 Dify 导入到 Cursor
 把 ./dify.yml 转成 Windsurf
-转换 ./hermes/config.yaml 到 Claude
+convert ./hermes/config.yaml to Claude
 ```
 
-Agent 会自动完成：读取配置 → 检测平台 → 解析Schema → 转换输出 → 保存文件
+Agent automatically: Reads config → Detects platform → Parses to Schema → Converts → Saves files
 
-> **注意**：云端平台（Dify、FastGPT、Flowise）用户请使用方式二。
+> **Note**: Cloud platform users (Dify, FastGPT, Flowise) should use Option 2.
 
-### 方式二：Web 手动转化 🧑
+### Option 2: Web Manual Conversion 🧑
 
-适用于所有用户，无需安装任何环境。
+For all users, no installation required.
 
-**访问**: [https://jasond2019.github.io/uat-agent-converter/](https://jasond2019.github.io/uat-agent-converter/)
+**Visit**: [https://jasond2019.github.io/uat-agent-converter/](https://jasond2019.github.io/uat-agent-converter/)
 
-**操作流程**:
-1. 上传配置文件或 Bundle ZIP
-2. 查看解析结果和 UAT-Schema
-3. 选择目标平台
-4. 下载转换结果
+**Workflow**:
+1. Upload config file or Bundle ZIP
+2. View parsed results and UAT-Schema
+3. Select target platform
+4. Download converted output
 
-**下载 SDK**: 点击网页底部「下载 SDK Bundle」按钮，获取独立执行文件（~200KB）
+**Download SDK**: Click "Download SDK Bundle" button on the page (~200KB standalone file)
 
 ---
 

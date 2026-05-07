@@ -15,56 +15,41 @@
 
 ---
 
-## 快速开始
+## 快速上手
 
-### To Human 🧑
+### 方式一：Agent 自动转化 🤖
 
-人类用户直接使用（无需 AI 助手）：
+适用于 Claude Code、Cursor、Windsurf、Codex、Copilot 等本地 Agent 用户。
 
-**在线使用**：
-1. 打开 [在线演示](https://jasond2019.github.io/uat-agent-converter/)
-2. 上传 Agent Bundle ZIP 文件（支持 Hermes、OpenClaw、Cursor 等）
-3. 查看解析文件和自动生成的 UAT-Schema
-4. 选择目标平台进行转换
-5. 下载转换后的配置或 Bundle ZIP
-
-**CLI 命令行**（需要 Node.js）：
-```bash
-# 显示帮助
-node src/cli/uat-cli.js help
-
-# 列出支持的平台
-node src/cli/uat-cli.js platforms
-
-# 自动检测平台
-node src/cli/uat-cli.js detect --input config.md
-
-# 解析配置生成 Schema
-node src/cli/uat-cli.js parse --input dify.yaml --platform dify --output schema.json
-
-# 转换 Schema 到目标平台
-node src/cli/uat-cli.js convert --schema schema.json --target cursor --output-dir ./output
+**第一步：安装 Skill**
+```
+请从 https://jasond2019.github.io/uat-agent-converter/.claude/skills/uat-import/skill.md 下载 uat-import skill
 ```
 
-### To Agent 🤖
-
-AI 助手通过 Skill 自动完成转换：
-
-**使用方式**（需提供配置文件路径）：
-```text
-"从 Dify 导入 ./dify-agent.yaml，转换到 Cursor"
-"把 ./hermes/config.yaml 这个 Hermes 配置转换成 Windsurf 格式"
-"convert ./openclaw.json openclaw agent to claude"
+**第二步：执行转化**
+```
+从 Dify 导入到 Cursor
+把 ./dify.yml 转成 Windsurf
+转换 ./hermes/config.yaml 到 Claude
 ```
 
-**Skill 自动执行**：
-1. 读取配置文件
-2. 检测源平台
-3. 解析配置生成 UAT-Schema
-4. 转换到目标平台
-5. 保存输出文件到项目目录
+Agent 会自动完成：读取配置 → 检测平台 → 解析Schema → 转换输出 → 保存文件
 
-**支持平台**：Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude, FastGPT, Flowise, Copilot, Codex, Zed
+> **注意**：云端平台（Dify、FastGPT、Flowise）用户请使用方式二。
+
+### 方式二：Web 手动转化 🧑
+
+适用于所有用户，无需安装任何环境。
+
+**访问**: [https://jasond2019.github.io/uat-agent-converter/](https://jasond2019.github.io/uat-agent-converter/)
+
+**操作流程**:
+1. 上传配置文件或 Bundle ZIP
+2. 查看解析结果和 UAT-Schema
+3. 选择目标平台
+4. 下载转换结果
+
+**下载 SDK**: 点击网页底部「下载 SDK Bundle」按钮，获取独立执行文件（~200KB）
 
 ---
 
