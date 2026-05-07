@@ -8,116 +8,47 @@
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-green?logo=github)](https://jasond2019.github.io/uat-agent-converter/)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platforms](https://img.shields.io/badge/platforms-12-green.svg)
-![Version](https://img.shields.io/badge/version-1.1.0-purple.svg)
+![Version](https://img.shields.io/badge/version-1.3.0-purple.svg)
 
-**Local · Offline · Secure** — All processing runs in your browser, no data uploaded to any server.
-
----
-
-## Quick Start
-
-### To Human 🧑
-
-For human users (direct usage without AI assistant):
-
-**Online Usage**:
-1. Open [Live Demo](https://jasond2019.github.io/uat-agent-converter/)
-2. Upload Agent Bundle ZIP (supports Hermes, OpenClaw, Cursor, etc.)
-3. View parsed files and auto-generated UAT-Schema
-4. Select target platform for conversion
-5. Download converted config or Bundle ZIP
-
-**CLI Command Line** (Node.js required):
-```bash
-# Show help
-node src/cli/uat-cli.js help
-
-# List supported platforms
-node src/cli/uat-cli.js platforms
-
-# Auto-detect platform from config file
-node src/cli/uat-cli.js detect --input config.md --confidence
-
-# Parse config to UAT-Schema
-node src/cli/uat-cli.js parse --input dify.yaml --platform dify --output schema.json
-
-# Parse with knowledge/skills packing
-node src/cli/uat-cli.js parse --input openclaw.json --pack-kb --pack-skills
-
-# Convert Schema to target platform
-node src/cli/uat-cli.js convert --schema schema.json --target cursor --output-dir ./output
-
-# Convert with sensitive info sanitization
-node src/cli/uat-cli.js convert --schema schema.json --target claude --sanitize --integrity
-
-# Generate integrity report
-node src/cli/uat-cli.js integrity --schema schema.json --format markdown
-```
-
-### CLI Parameters (v1.1.0)
-
-| Parameter | Description |
-|-----------|-------------|
-| `--content <string>` | Direct content input (no file needed) |
-| `--confidence` | Show platform detection confidence |
-| `--validate` | Validate output format |
-| `--pack-kb` | Pack knowledge base content |
-| `--pack-skills` | Pack skills information |
-| `--sanitize` | Sanitize sensitive info (API keys, passwords) |
-| `--sanitize-strategy` | Strategy: mask, remove, placeholder |
-| `--integrity` | Generate integrity report after conversion |
-| `--format` | Report format: json, markdown, yaml, html |
-
-### To Agent 🤖
-
-For AI assistants using the Skill:
-
-**Usage** (provide config file path):
-```text
-"从 Dify 导入 ./dify-agent.yaml，转换到 Cursor"
-"把 ./hermes/config.yaml 这个 Hermes 配置转换成 Windsurf 格式"
-"convert ./openclaw.json openclaw agent to claude"
-```
-
-**Skill Auto-executes**:
-1. Reads the config file
-2. Detects source platform
-3. Parses config to UAT-Schema
-4. Converts to target platform
-5. Saves output files to your project
-
-**Supported Platforms**: Dify, OpenClaw, Hermes, Cursor, Windsurf, Claude, FastGPT, Flowise, Copilot, Codex, Zed
+**Local · Offline · Secure** — All processing runs locally, no data uploaded to any server.
 
 ---
 
-## Skill Installation (One-Command Conversion)
+## 快速上手
 
-For Claude Code, Cursor, Windsurf, Codex, and Copilot users.
+### 方式一：Agent 自动转化 🤖
 
-### Install
+适用于 Claude Code、Cursor、Windsurf、Codex、Copilot 等本地 Agent 用户。
 
-In your Agent, say:
+**第一步：安装 Skill**
 ```
 安装 UAT skill
 ```
 
-### Usage
-
+**第二步：执行转化**
 ```
 从 Dify 导入到 Cursor
-转换这个 agent 到 Claude 格式
-把 ./config.yml 转成 Windsurf
+把 ./dify.yml 转成 Windsurf
+转换 ./hermes/config.yaml 到 Claude
 ```
 
-### SDK Bundle
+Agent 会自动完成：读取配置 → 检测平台 → 解析Schema → 转换输出 → 保存文件
 
-Download standalone SDK for local Node.js execution:
-- URL: https://jasond2019.github.io/uat-agent-converter/dist/uat-bundle.js (~200KB)
-- CLI: `node uat-bundle.js parse --input <file> --platform <name>`
+> **注意**：云端平台（Dify、FastGPT、Flowise）用户请使用方式二。
 
-**Note**: Cloud platform users (Dify, FastGPT, Flowise) should use the Web UI.
+### 方式二：Web 手动转化 🧑
 
-See [docs/UAT-SKILL-GUIDE.md](docs/UAT-SKILL-GUIDE.md) for detailed instructions.
+适用于所有用户，无需安装任何环境。
+
+**访问**: [https://jasond2019.github.io/uat-agent-converter/](https://jasond2019.github.io/uat-agent-converter/)
+
+**操作流程**:
+1. 上传配置文件或 Bundle ZIP
+2. 查看解析结果和 UAT-Schema
+3. 选择目标平台
+4. 下载转换结果
+
+**下载 SDK**: 点击网页底部「下载 SDK Bundle」按钮，获取独立执行文件（~200KB）
 
 ---
 
