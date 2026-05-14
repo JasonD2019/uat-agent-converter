@@ -16,6 +16,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // Zed Editor Bundle 创建（导出）
 // ============================================
 
@@ -117,6 +137,33 @@ function encodeZedRulesMD(schema) {
   sections.push(`- **Description**: ${schema.meta.description || 'AI-assisted development project'}`);
   sections.push('');
 
+  // Role 定位
+  if (schema.identity.role) {
+    sections.push('## Role');
+    sections.push('');
+    sections.push(`You are acting as: ${schema.identity.role}`);
+    sections.push('');
+  }
+
+  // Personality 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(`Communication style: ${schema.identity.personality}`);
+    sections.push('');
+  }
+
+  // Language 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push(`- Respond in ${langDisplay} unless specified otherwise`);
+    sections.push('');
+  }
+
   sections.push('## General Guidelines');
   sections.push('- Write clean, idiomatic code');
   sections.push('- Use meaningful variable names');
@@ -144,6 +191,43 @@ function encodeZedRulesMD(schema) {
       sections.push(`- ${c}`);
     }
     sections.push('');
+  }
+
+  // Memory encoding（使用JSON代码块格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToJSONBlock(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码（使用JSON代码块格式）
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Base');
+      sections.push('');
+      sections.push('```json');
+      sections.push(JSON.stringify({
+        datasets: kbContent.datasets?.map(ds => ({
+          id: ds.id,
+          name: ds.name,
+          type: ds.type
+        })) || [],
+        documents: kbContent.documents?.map(doc => ({
+          id: doc.id,
+          title: doc.title,
+          source: doc.source
+        })) || []
+      }, null, 2));
+      sections.push('```');
+      sections.push('');
+    }
+  }
+
+  // 技能编码（使用JSON代码块格式）
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToJSONBlock(schema.skills));
   }
 
   sections.push('## Testing');

@@ -96,18 +96,45 @@ Output: UAT-Schema JSON saved to `.uat-temp/schema.json`
 
 ### Step 4: Convert to Target
 
-Execute:
+Call Bundle encoding function directly (ensures complete output including Knowledge/Skills):
+
 ```bash
-node .uat-temp/uat-bundle.js convert --schema .uat-temp/schema.json --target <目标平台>
+node -e "
+const fs = require('fs');
+const bundle = require('./.uat-temp/uat-bundle.js');
+const schema = JSON.parse(fs.readFileSync('./.uat-temp/schema.json', 'utf8'));
+
+// Select Bundle by target platform
+const platform = process.argv[2] || 'cursor';
+const bundles = {
+  cursor: bundle.CursorBundle,
+  windsurf: bundle.WindsurfBundle,
+  claude: bundle.ClaudeCodeBundle,
+  copilot: bundle.CopilotBundle,
+  codex: bundle.CodexBundle,
+  zed: bundle.ZedBundle,
+  dify: bundle.DifyBundle,
+  fastgpt: bundle.FastGPTBundle,
+  flowise: bundle.FlowiseBundle,
+  openclaw: bundle.OpenClawBundle,
+  hermes: bundle.HermesBundle
+};
+
+const encoder = bundles[platform];
+if (!encoder) throw new Error('Unknown platform: ' + platform);
+
+const files = encoder.encodeToFiles(schema);
+console.log(JSON.stringify(files, null, 2));
+" <目标平台> > .uat-temp/output.json
 ```
 
-Output: Target platform config content
+Output: JSON object `{ "path": "content" }` saved to `.uat-temp/output.json`
 
 ### Step 5: Present Results
 
-Show conversion result:
-- List generated files
-- Preview first 30 lines of main output
+Parse `.uat-temp/output.json`:
+- List all generated files (`Object.keys(files)`)
+- Preview first 30 lines of main file
 - Ask: "是否保存到当前项目目录？"
 
 ### Step 6: Save Files (User Confirms)
@@ -159,11 +186,11 @@ node .uat-temp/uat-bundle.js detect --input <file>
 node .uat-temp/uat-bundle.js parse --content <string> [--platform <name>]
 node .uat-temp/uat-bundle.js parse --input <file> [--platform <name>] [--output <schema.json>]
 
-# Convert Schema to target
-node .uat-temp/uat-bundle.js convert --schema <json|file> --target <platform>
-
 # List platforms
 node .uat-temp/uat-bundle.js platforms
+
+# Note: For encoding, use direct Bundle function call (see Step 4)
+# Do NOT use CLI convert command (it uses legacy encoder-pool with incomplete output)
 ```
 
 ## Error Handling

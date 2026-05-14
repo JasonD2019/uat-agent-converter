@@ -316,7 +316,7 @@ function parseArgs(args) {
 
 function showHelp() {
   console.log(`
-UAT CLI - Agent Config Converter v1.1.0 (F-Series Optimization)
+UAT CLI - Agent Config Converter v1.2.0 (Phase 3 G/H/I-Series)
 
 用法:
   uat parse --input <file> [--platform <name>]     解析配置文件生成 Schema
@@ -328,6 +328,11 @@ UAT CLI - Agent Config Converter v1.1.0 (F-Series Optimization)
   uat integrity --schema <file>                    生成完整性报告 (F6)
   uat help                                         显示帮助
 
+批量处理 (I系列新增):
+  uat detect --input-dir <path> [--recursive] [--pattern <glob>] [--confidence]
+  uat parse --input-dir <path> [--platform <name>] [--output-dir <path>] [--pack-kb]
+  uat convert --schema-dir <path> --target <platform> [--output-dir <path>] [--parallel <n>]
+
 选项:
   --input <path>          输入文件路径
   --content <string>      直接传入内容字符串 (E1 新增)
@@ -335,7 +340,7 @@ UAT CLI - Agent Config Converter v1.1.0 (F-Series Optimization)
   --schema <path>         Schema JSON 文件路径
   --target <platform>     目标平台名称
   --output <path>         输出文件路径
-  --output-dir <path>     输出目录
+  --output-dir <path>     输出目录（批量处理）
   --validate              校验输出格式 (E5 新增)
   --confidence            显示检测置信度 (E4 新增)
   --integrity             生成完整性报告 (F6 新增)
@@ -344,10 +349,18 @@ UAT CLI - Agent Config Converter v1.1.0 (F-Series Optimization)
   --sanitize              清理敏感信息 (F5 新增)
   --sanitize-strategy     清理策略: mask | remove | placeholder (默认 mask)
   --format                报告格式: json | markdown | yaml | html (默认 markdown)
+  --input-dir <path>      输入目录（批量处理）(I系列)
+  --schema-dir <path>     Schema目录（批量转换）(I系列)
+  --recursive             递归处理子目录 (I系列)
+  --pattern <glob>        文件匹配模式 (默认 *.yaml,*.json,*.md) (I系列)
+  --parallel <n>          并行处理数量 (默认 3) (I系列)
 
-新增功能:
+功能版本:
   Phase 2 E系列: --content, 错误码, 临时清理, 检测置信度, 输出校验
   Phase 2 F系列: 知识库打包, 记忆结构化, 技能打包, 敏感清理, 完整性报告
+  Phase 3 G系列: Memory/Knowledge/Skills编码器 (YAML/JSON/MD格式)
+  Phase 3 H系列: MCP配置完整保留 + 脱敏 + 迁移提示
+  Phase 3 I系列: CLI批量检测/解析/转换
 
 示例:
   uat parse --input dify.yaml --platform dify
@@ -356,6 +369,11 @@ UAT CLI - Agent Config Converter v1.1.0 (F-Series Optimization)
   uat convert --schema schema.json --target cursor --validate --sanitize
   uat detect --input config.yaml --confidence
   uat integrity --schema schema.json --format markdown
+
+  # 批量处理示例
+  uat detect --input-dir ./configs/ --confidence --recursive
+  uat parse --input-dir ./configs/ --output-dir ./schemas/ --pack-kb
+  uat convert --schema-dir ./schemas/ --target cursor --output-dir ./output/ --parallel 5
 
 支持平台: dify, openclaw, hermes, cursor, windsurf, claude, fastgpt, flowise, copilot, codex, zed
 
@@ -862,6 +880,317 @@ function integrityCommand(args) {
 }
 
 // ============================================
+// I系列: 批量处理命令
+// ============================================
+
+/**
+ * 扫描目录获取匹配文件
+ * @param {string} dirPath - 目录路径
+ * @param {string} patternStr - 文件模式（逗号分隔）
+ * @param {boolean} recursive - 是否递归
+ * @returns {Array} 文件路径数组
+ */
+function scanDirectory(dirPath, patternStr, recursive) {
+  const patterns = patternStr.split(',').map(p => p.trim());
+  const files = [];
+
+  function scanDir(currentPath) {
+    const items = fs.readdirSync(currentPath);
+
+    items.forEach(item => {
+      const fullPath = path.join(currentPath, item);
+      const stat = fs.statSync(fullPath);
+
+      if (stat.isDirectory() && recursive) {
+        scanDir(fullPath);
+      } else if (stat.isFile()) {
+        // 检查文件是否匹配模式
+        const ext = path.extname(item);
+        const match = patterns.some(p => {
+          if (p.startsWith('*')) {
+            return ext === p.slice(1) || item.endsWith(p.slice(1));
+          }
+          return item === p;
+        });
+        if (match) {
+          files.push(fullPath);
+        }
+      }
+    });
+  }
+
+  scanDir(dirPath);
+  return files;
+}
+
+/**
+ * 批量检测命令
+ */
+function detectBatchCommand(args) {
+  const inputDir = args['input-dir'];
+  const recursive = args.recursive;
+  const pattern = args.pattern || '*.yaml,*.json,*.md';
+  const showConfidence = args.confidence;
+
+  if (!inputDir) {
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --input-dir 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
+  }
+
+  if (!fs.existsSync(inputDir)) {
+    showError(ErrorCodes.INPUT_FILE_NOT_FOUND, inputDir);
+    process.exit(ErrorCodes.INPUT_FILE_NOT_FOUND.code);
+  }
+
+  // 扫描目录
+  const files = scanDirectory(inputDir, pattern, recursive);
+
+  if (files.length === 0) {
+    console.log('⚠️  未找到匹配文件');
+    console.log(`  目录: ${inputDir}`);
+    console.log(`  模式: ${pattern}`);
+    process.exit(0);
+  }
+
+  console.log(`🔍 扫描到 ${files.length} 个文件`);
+  console.log('');
+
+  const results = [];
+  files.forEach(file => {
+    try {
+      const content = fs.readFileSync(file, 'utf-8');
+      const detection = detectPlatformWithConfidence(content);
+      results.push({
+        file,
+        platform: detection.platform,
+        confidence: detection.confidence
+      });
+    } catch (err) {
+      results.push({
+        file,
+        platform: 'error',
+        confidence: 0,
+        error: err.message
+      });
+    }
+  });
+
+  // 输出结果
+  console.log('检测结果:');
+  console.log('');
+  results.forEach(r => {
+    const relPath = path.relative(inputDir, r.file);
+    if (r.error) {
+      console.log(`  ❌ ${relPath}: 读取失败`);
+    } else if (showConfidence) {
+      console.log(`  ✅ ${relPath}: ${r.platform} (${(r.confidence * 100).toFixed(1)}%)`);
+    } else {
+      console.log(`  ✅ ${relPath}: ${r.platform}`);
+    }
+  });
+
+  // 统计
+  console.log('');
+  console.log('平台分布:');
+  const stats = {};
+  results.forEach(r => {
+    if (r.platform !== 'error') {
+      stats[r.platform] = (stats[r.platform] || 0) + 1;
+    }
+  });
+  Object.entries(stats).sort((a, b) => b[1] - a[1]).forEach(([p, c]) => {
+    console.log(`  ${p}: ${c} 个`);
+  });
+}
+
+/**
+ * 批量解析命令
+ */
+function parseBatchCommand(args) {
+  const inputDir = args['input-dir'];
+  const platformArg = args.platform;
+  const outputDir = args['output-dir'] || path.join(inputDir, 'schemas');
+  const recursive = args.recursive;
+  const pattern = args.pattern || '*.yaml,*.json,*.md';
+  const packKB = args['pack-kb'];
+  const packSkills = args['pack-skills'];
+
+  if (!inputDir) {
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --input-dir 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
+  }
+
+  if (!fs.existsSync(inputDir)) {
+    showError(ErrorCodes.INPUT_FILE_NOT_FOUND, inputDir);
+    process.exit(ErrorCodes.INPUT_FILE_NOT_FOUND.code);
+  }
+
+  // 创建输出目录
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  // 扫描目录
+  const files = scanDirectory(inputDir, pattern, recursive);
+
+  if (files.length === 0) {
+    console.log('⚠️  未找到匹配文件');
+    process.exit(0);
+  }
+
+  console.log(`📝 批量解析 ${files.length} 个文件`);
+  console.log(`  输出目录: ${outputDir}`);
+  console.log('');
+
+  const results = [];
+  files.forEach(file => {
+    const relPath = path.relative(inputDir, file);
+    try {
+      const content = fs.readFileSync(file, 'utf-8');
+
+      // 检测或使用指定平台
+      const platform = platformArg || detectPlatformWithConfidence(content).platform;
+
+      // 解析
+      const schema = parseContent(content, platform);
+
+      // F系列扩展
+      if (packKB && window.UATKnowledgePackager) {
+        schema.memory.knowledgeBaseContent = window.UATKnowledgePackager.packKnowledgeBase(schema);
+      }
+      if (packSkills && window.UATSkillsPackager) {
+        schema.skills = window.UATSkillsPackager.inferSkillsFromSchema(schema);
+      }
+
+      // 保存 Schema
+      const baseName = path.basename(file, path.extname(file));
+      const schemaPath = path.join(outputDir, `${baseName}-schema.json`);
+      fs.writeFileSync(schemaPath, JSON.stringify(schema, null, 2));
+
+      results.push({
+        file: relPath,
+        success: true,
+        platform,
+        schemaPath
+      });
+
+      console.log(`  ✅ ${relPath} → ${platform}`);
+
+    } catch (err) {
+      results.push({
+        file: relPath,
+        success: false,
+        error: err.message
+      });
+      console.log(`  ❌ ${relPath}: ${err.message}`);
+    }
+  });
+
+  // 统计
+  const successCount = results.filter(r => r.success).length;
+  console.log('');
+  console.log(`✨ 完成: ${successCount}/${files.length} 成功`);
+}
+
+/**
+ * 批量转换命令
+ */
+function convertBatchCommand(args) {
+  const schemaDir = args['schema-dir'];
+  const targetPlatform = args.target;
+  const outputDir = args['output-dir'] || path.join(schemaDir, 'output');
+  const parallel = parseInt(args.parallel) || 3;
+  const sanitize = args.sanitize;
+
+  if (!schemaDir) {
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --schema-dir 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
+  }
+
+  if (!targetPlatform) {
+    showError(ErrorCodes.INPUT_MISSING, '请提供 --target 参数');
+    process.exit(ErrorCodes.INPUT_MISSING.code);
+  }
+
+  if (!fs.existsSync(schemaDir)) {
+    showError(ErrorCodes.INPUT_FILE_NOT_FOUND, schemaDir);
+    process.exit(ErrorCodes.INPUT_FILE_NOT_FOUND.code);
+  }
+
+  // 创建输出目录
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  // 扫描 Schema 文件
+  const files = scanDirectory(schemaDir, '*-schema.json', false);
+
+  if (files.length === 0) {
+    console.log('⚠️  未找到 Schema 文件');
+    process.exit(0);
+  }
+
+  console.log(`🔄 批量转换 ${files.length} 个 Schema → ${targetPlatform}`);
+  console.log(`  输出目录: ${outputDir}`);
+  console.log(`  并行数: ${parallel}`);
+  console.log('');
+
+  const results = [];
+
+  // 分批处理
+  const batches = [];
+  for (let i = 0; i < files.length; i += parallel) {
+    batches.push(files.slice(i, i + parallel));
+  }
+
+  batches.forEach((batch, batchIndex) => {
+    console.log(`处理批次 ${batchIndex + 1}/${batches.length}...`);
+
+    batch.forEach(schemaPath => {
+      const relPath = path.relative(schemaDir, schemaPath);
+      try {
+        const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
+        const schema = JSON.parse(schemaContent);
+
+        // 敏感信息脱敏
+        if (sanitize && window.UATSecretsSanitizer) {
+          schema = window.UATSecretsSanitizer.sanitizeSchema(schema);
+        }
+
+        // 转换
+        const output = encodeToPlatform(schema, targetPlatform);
+
+        // 保存
+        const baseName = path.basename(schemaPath, '-schema.json');
+        const outputPath = path.join(outputDir, `${baseName}-${targetPlatform}.txt`);
+        fs.writeFileSync(outputPath, output);
+
+        results.push({
+          file: relPath,
+          success: true,
+          outputPath
+        });
+
+        console.log(`  ✅ ${relPath}`);
+
+      } catch (err) {
+        results.push({
+          file: relPath,
+          success: false,
+          error: err.message
+        });
+        console.log(`  ❌ ${relPath}: ${err.message}`);
+      }
+    });
+  });
+
+  // 统计
+  const successCount = results.filter(r => r.success).length;
+  console.log('');
+  console.log(`✨ 完成: ${successCount}/${files.length} 成功`);
+}
+
+// ============================================
 // 主入口
 // ============================================
 
@@ -872,11 +1201,21 @@ function main() {
 
   switch (command) {
     case 'parse':
-      parseCommand(options);
+      // I系列: 支持批量解析
+      if (options['input-dir']) {
+        parseBatchCommand(options);
+      } else {
+        parseCommand(options);
+      }
       break;
 
     case 'convert':
-      convertCommand(options);
+      // I系列: 支持批量转换
+      if (options['schema-dir']) {
+        convertBatchCommand(options);
+      } else {
+        convertCommand(options);
+      }
       break;
 
     case 'platforms':
@@ -885,7 +1224,12 @@ function main() {
       break;
 
     case 'detect':
-      detectCommand(options);
+      // I系列: 支持批量检测
+      if (options['input-dir']) {
+        detectBatchCommand(options);
+      } else {
+        detectCommand(options);
+      }
       break;
 
     case 'integrity':

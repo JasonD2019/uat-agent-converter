@@ -61,21 +61,3 @@ window.UATEncoder = UATEncoder;
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = UATEncoder;
 }
-
-// 向后兼容：从 encoder-pool.js 导入原有函数（如果存在）
-if (window.UATEncoderLegacy) {
-  UATEncoder.runEncoderPool = window.UATEncoderLegacy.runEncoderPool;
-  UATEncoder.encodeDifyYAMLEnhanced = window.UATEncoderLegacy.encodeDifyYAMLEnhanced;
-  UATEncoder.encodeFastGPTEnhanced = window.UATEncoderLegacy.encodeFastGPTEnhanced;
-  UATEncoder.encodeFlowiseEnhanced = window.UATEncoderLegacy.encodeFlowiseEnhanced;
-  UATEncoder.encodeClaudeSkillEnhanced = window.UATEncoderLegacy.encodeClaudeSkillEnhanced;
-  UATEncoder.encodeOpenClawEnhanced = window.UATEncoderLegacy.encodeOpenClawEnhanced;
-  UATEncoder.encodeHermesYAML = window.UATEncoderLegacy.encodeHermesYAML;
-  UATEncoder.encodeCursorRules = window.UATEncoderLegacy.encodeCursorRules;
-  UATEncoder.encodeWindsurfRules = window.UATEncoderLegacy.encodeWindsurfRules;
-  UATEncoder.encodeCopilotInstructions = window.UATEncoderLegacy.encodeCopilotInstructions;
-  UATEncoder.encodeCodexAgents = window.UATEncoderLegacy.encodeCodexAgents;
-  UATEncoder.encodeZedRules = window.UATEncoderLegacy.encodeZedRules;
-  UATEncoder.encodePlainTextEnhanced = window.UATEncoderLegacy.encodePlainTextEnhanced;
-  UATEncoder.addKnowledgeBaseNote = window.UATEncoderLegacy.addKnowledgeBaseNote;
-}

@@ -20,6 +20,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // OpenClaw Bundle 创建（导出）
 // ============================================
 
@@ -89,6 +109,7 @@ async function createOpenClawBundle(schema, options = {}) {
   workspaceFolder.file("USER.md", encodeOpenClawUserMD(schema));
   workspaceFolder.file("TOOLS.md", encodeOpenClawToolsMD(schema));
   workspaceFolder.file("MEMORY.md", encodeOpenClawMemoryMD(schema));
+  workspaceFolder.file("SKILLS.md", encodeOpenClawSkillsMD(schema));
   workspaceFolder.file("HEARTBEAT.md", encodeOpenClawHeartbeatMD(schema));
 
   // 5. agents/main/ 目录结构
@@ -407,6 +428,24 @@ function encodeOpenClawIdentityMD(schema) {
   sections.push(schema.identity.role || 'AI Assistant');
   sections.push('');
 
+  // 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(schema.identity.personality);
+    sections.push('');
+  }
+
+  // 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push('');
+  }
+
   // 能力边界
   sections.push('## Capabilities');
   sections.push('');
@@ -518,22 +557,28 @@ function encodeOpenClawToolsMD(schema) {
   sections.push('- Enabled: ' + (schema.tools.apiEndpoints?.length > 0 ? 'yes' : 'no'));
   sections.push('');
 
-  // MCP 工具
+  // MCP 工具 - 使用MCP编码器
+  const mcpEncoder = getUATMCPEncoder();
   if (schema.tools.mcpServers?.length > 0) {
-    sections.push('## MCP Servers');
-    sections.push('');
-    for (const mcp of schema.tools.mcpServers) {
-      sections.push(`### ${mcp.name}`);
+    if (mcpEncoder) {
+      sections.push(mcpEncoder.encodeMCPToOpenClawToolsMD(schema.tools.mcpServers));
+    } else {
+      // 兼容旧版
+      sections.push('## MCP Servers');
       sections.push('');
-      sections.push(`- **URL**: ${mcp.url || 'local'}`);
-      sections.push(`- **Transport**: ${mcp.config?.transport || 'stdio'}`);
-      if (mcp.config?.command) {
-        sections.push(`- **Command**: ${mcp.config.command}`);
+      for (const mcp of schema.tools.mcpServers) {
+        sections.push(`### ${mcp.name}`);
+        sections.push('');
+        sections.push(`- **URL**: ${mcp.url || 'local'}`);
+        sections.push(`- **Transport**: ${mcp.config?.transport || 'stdio'}`);
+        if (mcp.config?.command) {
+          sections.push(`- **Command**: ${mcp.config.command}`);
+        }
+        if (mcp.tools?.length > 0) {
+          sections.push(`- **Tools**: ${mcp.tools.map(t => t.name).join(', ')}`);
+        }
+        sections.push('');
       }
-      if (mcp.tools?.length > 0) {
-        sections.push(`- **Tools**: ${mcp.tools.map(t => t.name).join(', ')}`);
-      }
-      sections.push('');
     }
   }
 
@@ -580,6 +625,8 @@ function encodeOpenClawToolsMD(schema) {
 // ============================================
 
 function encodeOpenClawMemoryMD(schema) {
+  const memoryEncoder = getUATMemoryEncoder();
+  const kbEncoder = getUATKnowledgeEncoder();
   const sections = [];
 
   sections.push('# MEMORY.md - Long-term Memory');
@@ -587,6 +634,14 @@ function encodeOpenClawMemoryMD(schema) {
   sections.push('> This file stores persistent knowledge extracted from conversations.');
   sections.push('> It is loaded during the startup sequence (step 5).');
   sections.push('');
+
+  // 使用memoryEntries编码器（新格式）
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push('## Structured Memory');
+    sections.push('');
+    sections.push(memoryEncoder.encodeMemoryEntriesToTable(schema.memory.memoryEntries));
+    sections.push('');
+  }
 
   // 知识库引用
   if (schema.memory.knowledgeBaseRef?.length > 0) {
@@ -601,6 +656,17 @@ function encodeOpenClawMemoryMD(schema) {
     sections.push('');
     sections.push('*Note: Knowledge base content is not transferred. Re-configure in OpenClaw.*');
     sections.push('');
+  }
+
+  // 知识库内容编码（如果有）
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Content');
+      sections.push('');
+      sections.push(kbEncoder.encodeKnowledgeToMarkdown(kbContent));
+      sections.push('');
+    }
   }
 
   // 长期记忆 (longTermMemory 支持字符串或数组格式)
@@ -654,7 +720,8 @@ function encodeOpenClawMemoryMD(schema) {
 
   // 空记忆说明
   const hasKnowledgeBase = schema.memory.knowledgeBaseRef?.length > 0;
-  if (!hasMemory && !hasKnowledgeBase) {
+  const hasMemoryEntries = schema.memory.memoryEntries?.length > 0;
+  if (!hasMemory && !hasKnowledgeBase && !hasMemoryEntries) {
     sections.push('## Memory Status');
     sections.push('');
     sections.push('No long-term memories stored yet.');
@@ -726,6 +793,20 @@ function encodeOpenClawHeartbeatMD(schema) {
   sections.push('*Heartbeat tasks run in the background without user intervention.*');
 
   return sections.join('\n');
+}
+
+// ============================================
+// SKILLS.md 编码器（技能清单）
+// ============================================
+
+function encodeOpenClawSkillsMD(schema) {
+  const skillsEncoder = getUATSkillsEncoder();
+
+  if (schema.skills && skillsEncoder) {
+    return skillsEncoder.encodeSkillsToOpenClawMD(schema.skills);
+  }
+
+  return '# Skills\n\nNo skills defined.\n';
 }
 
 // ============================================
@@ -1359,6 +1440,7 @@ function encodeOpenClawToFiles(schema) {
     'workspace/USER.md': encodeOpenClawUserMD(schema),
     'workspace/TOOLS.md': encodeOpenClawToolsMD(schema),
     'workspace/MEMORY.md': encodeOpenClawMemoryMD(schema),
+    'workspace/SKILLS.md': encodeOpenClawSkillsMD(schema),
     'workspace/HEARTBEAT.md': encodeOpenClawHeartbeatMD(schema),
     '.env.example': encodeOpenClawEnvExample(schema),
     'README.md': encodeOpenClawReadme(schema)
@@ -1376,6 +1458,7 @@ window.OpenClawBundle = {
   encodeOpenClawUserMD,
   encodeOpenClawToolsMD,
   encodeOpenClawMemoryMD,
+  encodeOpenClawSkillsMD,
   encodeOpenClawHeartbeatMD,
   encodeOpenClawEnvExample,
   encodeOpenClawReadme,

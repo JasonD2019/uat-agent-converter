@@ -23,6 +23,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // Windsurf Bundle 创建（导出）
 // ============================================
 
@@ -175,6 +195,33 @@ function encodeWindsurfRulesMain(schema) {
     sections.push('');
   }
 
+  // Role 定位
+  if (schema.identity.role) {
+    sections.push('## Role');
+    sections.push('');
+    sections.push(`You are acting as: ${schema.identity.role}`);
+    sections.push('');
+  }
+
+  // Personality 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(`Communication style: ${schema.identity.personality}`);
+    sections.push('');
+  }
+
+  // Language 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push(`- Respond in ${langDisplay} unless specified otherwise`);
+    sections.push('');
+  }
+
   // 约束规则
   if (schema.identity.constraints?.length > 0) {
     sections.push('## Hard Constraints');
@@ -207,6 +254,27 @@ function encodeWindsurfRulesMain(schema) {
   sections.push('- `backend.md` - Backend rules');
   sections.push('- `tests.md` - Testing rules');
   sections.push('');
+
+  // Memory encoding（使用memoryEntries）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToList(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push(kbEncoder.encodeKnowledgeToList(kbContent));
+    }
+  }
+
+  // 技能编码
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToList(schema.skills));
+  }
 
   // MCP工具引用
   if (schema.tools.mcpServers?.length > 0) {

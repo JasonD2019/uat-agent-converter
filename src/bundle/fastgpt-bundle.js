@@ -26,6 +26,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // FastGPT Bundle 创建（导出）
 // ============================================
 
@@ -127,6 +147,9 @@ function extractFastGPTProvider(modelName) {
 }
 
 function encodeFastGPTMainJSON(schema) {
+  const memoryEncoder = getUATMemoryEncoder();
+  const skillsEncoder = getUATSkillsEncoder();
+
   const config = {
     version: "4.8",
     appConfig: {
@@ -145,6 +168,11 @@ function encodeFastGPTMainJSON(schema) {
         required: v.required || false
       })) || []
     },
+    identity: {
+      role: schema.identity.role || '',
+      personality: schema.identity.personality || '',
+      language: schema.identity.language || 'zh-CN'
+    },
     modelConfig: {
       model: schema.modelConfig.model || 'gpt-4',
       temperature: schema.modelConfig.temperature || 0.7,
@@ -156,6 +184,16 @@ function encodeFastGPTMainJSON(schema) {
       edges: "@workflow/edges.json"
     }
   };
+
+  // Memory encoding if memoryEntries present
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    config.memory = memoryEncoder.encodeMemoryEntriesToFastGPTFormat(schema.memory.memoryEntries);
+  }
+
+  // Skills encoding if skills present
+  if (schema.skills && skillsEncoder) {
+    config.skills = skillsEncoder.encodeSkillsToFastGPTJSON(schema.skills);
+  }
 
   return JSON.stringify(config, null, 2);
 }
@@ -343,6 +381,17 @@ function encodeFastGPTVariablesJSON(schema) {
 }
 
 function encodeFastGPTDatasetsJSON(schema) {
+  const kbEncoder = getUATKnowledgeEncoder();
+
+  // 如果有knowledgeBaseContent，使用编码器完整编码
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      return JSON.stringify(kbEncoder.encodeKnowledgeToFastGPTJSON(kbContent), null, 2);
+    }
+  }
+
+  // 否则仅保留引用
   const datasets = {
     datasets: [],
     note: "知识库内容不会导出，仅保留ID引用，需要在FastGPT平台重新创建或关联"

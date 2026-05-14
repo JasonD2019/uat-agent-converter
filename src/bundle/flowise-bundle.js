@@ -24,6 +24,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // Flowise Bundle 创建（导出）
 // ============================================
 
@@ -125,12 +145,21 @@ function extractFlowiseLLMType(modelName) {
 }
 
 function encodeFlowiseMainJSON(schema) {
+  const memoryEncoder = getUATMemoryEncoder();
+  const kbEncoder = getUATKnowledgeEncoder();
+  const skillsEncoder = getUATSkillsEncoder();
+
   const config = {
     name: schema.meta.name || 'Flowise Agent',
     description: schema.meta.description || 'AI chatbot built with Flowise',
     type: "ChatFlow",
     flowId: `flow_${Date.now()}`,
     flowName: "MainChatFlow",
+    identity: {
+      role: schema.identity.role || '',
+      personality: schema.identity.personality || '',
+      language: schema.identity.language || 'en-US'
+    },
     nodes: "@nodes/node_configs.json",
     edges: "@edges.json",
     variables: "@variables.json",
@@ -143,6 +172,21 @@ function encodeFlowiseMainJSON(schema) {
       }
     }
   };
+
+  // Memory encoding if memoryEntries present
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    config.memory = memoryEncoder.encodeMemoryEntriesToFlowiseFormat(schema.memory.memoryEntries);
+  }
+
+  // Knowledge encoding if knowledgeBaseContent present
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    config.knowledge = kbEncoder.encodeKnowledgeToFlowiseJSON(schema.memory.knowledgeBaseContent);
+  }
+
+  // Skills encoding if skills present
+  if (schema.skills && skillsEncoder) {
+    config.skills = skillsEncoder.encodeSkillsToFlowiseJSON(schema.skills);
+  }
 
   return JSON.stringify(config, null, 2);
 }

@@ -25,6 +25,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // Dify Bundle 创建（导出）
 // ============================================
 
@@ -126,6 +146,21 @@ function encodeDifyYML(schema) {
   lines.push('  icon: "🤖"');
   lines.push('');
 
+  // Identity 扩展字段
+  if (schema.identity.role || schema.identity.personality || schema.identity.language) {
+    lines.push('identity:');
+    if (schema.identity.role) {
+      lines.push(`  role: "${schema.identity.role}"`);
+    }
+    if (schema.identity.personality) {
+      lines.push(`  personality: "${schema.identity.personality}"`);
+    }
+    if (schema.identity.language) {
+      lines.push(`  language: "${schema.identity.language}"`);
+    }
+    lines.push('');
+  }
+
   // Model 配置
   lines.push('model:');
   const provider = extractDifyProvider(schema.modelConfig.model);
@@ -141,6 +176,15 @@ function encodeDifyYML(schema) {
   lines.push('    nodes: "@workflow/nodes.yml"');
   lines.push('    edges: "@workflow/edges.yml"');
   lines.push('');
+
+  // Memory - 使用UATMemoryEncoder
+  if (schema.memory.memoryEntries?.length > 0) {
+    const memoryEncoder = getUATMemoryEncoder();
+    if (memoryEncoder) {
+      lines.push('# Memory Configuration');
+      lines.push(memoryEncoder.encodeMemoryEntriesToYAML(schema.memory.memoryEntries));
+    }
+  }
 
   // Knowledge Base
   if (schema.memory.knowledgeBaseRef?.length > 0) {
@@ -158,6 +202,14 @@ function encodeDifyYML(schema) {
   lines.push('  builtin: []');
   lines.push('  custom: "@tools/custom_tools.yml"');
   lines.push('');
+
+  // Skills encoding（使用YAML格式）
+  if (schema.skills?.skills?.length > 0) {
+    const skillsEncoder = getUATSkillsEncoder();
+    if (skillsEncoder) {
+      lines.push(skillsEncoder.encodeSkillsToDifyYAML(schema.skills));
+    }
+  }
 
   return lines.join('\n');
 }
@@ -275,6 +327,17 @@ function encodeDifyVariablesYML(schema) {
 }
 
 function encodeDifyKBReferences(schema) {
+  const kbEncoder = getUATKnowledgeEncoder();
+
+  // 如果有knowledgeBaseContent，使用编码器完整编码
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      return kbEncoder.encodeKnowledgeToDifyYAML(kbContent);
+    }
+  }
+
+  // 否则仅保留引用
   const kbConfig = {
     datasets: [],
     note: "知识库内容不会导出，仅保留ID引用，需要在Dify平台重新创建或关联"

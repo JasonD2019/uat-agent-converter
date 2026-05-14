@@ -1441,6 +1441,22 @@ function bindButtonEvents() {
   // Clear input
   const clearInputBtn = document.getElementById('clearInputBtn');
   if (clearInputBtn) clearInputBtn.addEventListener('click', handleClearClick);
+
+  // J系列: Pack KB button
+  const packKBBtn = document.getElementById('packKBBtn');
+  if (packKBBtn) packKBBtn.addEventListener('click', handlePackKBClick);
+
+  // J系列: Pack Skills button
+  const packSkillsBtn = document.getElementById('packSkillsBtn');
+  if (packSkillsBtn) packSkillsBtn.addEventListener('click', handlePackSkillsClick);
+
+  // J系列: Sanitize toggle
+  const sanitizeToggle = document.getElementById('sanitizeToggle');
+  if (sanitizeToggle) sanitizeToggle.addEventListener('click', handleSanitizeToggle);
+
+  // J系列: Integrity report button
+  const integrityBtn = document.getElementById('integrityBtn');
+  if (integrityBtn) integrityBtn.addEventListener('click', handleIntegrityClick);
 }
 
 // ============================================
@@ -1865,6 +1881,159 @@ async function createBundleZip(files, platform) {
 }
 
 // ============================================
+// J系列: Pack KB/Skills Handlers
+// ============================================
+
+let sanitizeEnabled = false;
+
+/**
+ * 打包知识库
+ */
+function handlePackKBClick() {
+  if (!currentSchema) {
+    showToast('Please parse or upload a file first', 'warning');
+    return;
+  }
+
+  try {
+    if (!window.UATKnowledgePackager) {
+      showToast('Knowledge Packager module not loaded', 'error');
+      return;
+    }
+
+    const result = window.UATKnowledgePackager.packKnowledgeBase(currentSchema);
+
+    if (result && (result.datasets?.length > 0 || result.documents?.length > 0)) {
+      currentSchema.memory.knowledgeBaseContent = result;
+      showSchema(currentSchema);
+      showToast(`Packed: ${result.datasets?.length || 0} datasets, ${result.documents?.length || 0} documents`, 'success');
+    } else {
+      showToast('No knowledge base content found', 'warning');
+    }
+  } catch (err) {
+    showToast('Pack KB failed: ' + err.message, 'error');
+  }
+}
+
+/**
+ * 打包技能
+ */
+function handlePackSkillsClick() {
+  if (!currentSchema) {
+    showToast('Please parse or upload a file first', 'warning');
+    return;
+  }
+
+  try {
+    if (!window.UATSkillsPackager) {
+      showToast('Skills Packager module not loaded', 'error');
+      return;
+    }
+
+    const result = window.UATSkillsPackager.inferSkillsFromSchema(currentSchema);
+
+    if (result && result.skills?.length > 0) {
+      currentSchema.skills = result;
+      showSchema(currentSchema);
+      showToast(`Packed: ${result.skills.length} skills inferred`, 'success');
+    } else {
+      showToast('No skills could be inferred', 'warning');
+    }
+  } catch (err) {
+    showToast('Pack Skills failed: ' + err.message, 'error');
+  }
+}
+
+/**
+ * 敏感信息清理开关
+ */
+function handleSanitizeToggle(e) {
+  sanitizeEnabled = !sanitizeEnabled;
+  e.currentTarget.classList.toggle('active', sanitizeEnabled);
+
+  if (sanitizeEnabled && currentSchema) {
+    try {
+      if (!window.UATSecretsSanitizer) {
+        showToast('Secrets Sanitizer module not loaded', 'error');
+        return;
+      }
+
+      currentSchema = window.UATSecretsSanitizer.sanitizeSchema(currentSchema);
+      showSchema(currentSchema);
+      showToast('Sensitive data sanitized', 'success');
+    } catch (err) {
+      showToast('Sanitize failed: ' + err.message, 'error');
+    }
+  } else if (!sanitizeEnabled) {
+    showToast('Sanitization disabled', 'info');
+  }
+}
+
+/**
+ * 生成完整性报告
+ */
+function handleIntegrityClick() {
+  if (!currentSchema) {
+    showToast('Please parse or upload a file first', 'warning');
+    return;
+  }
+
+  try {
+    if (!window.UATIntegrityReport) {
+      showToast('Integrity Report module not loaded', 'error');
+      return;
+    }
+
+    const report = window.UATIntegrityReport.generateIntegrityReport(currentSchema);
+    const reportContent = window.UATIntegrityReport.exportReport(report, 'markdown');
+
+    // 显示报告预览
+    showIntegrityReport(report);
+
+    showToast('Integrity report generated', 'success');
+  } catch (err) {
+    showToast('Integrity report failed: ' + err.message, 'error');
+  }
+}
+
+/**
+ * 显示完整性报告
+ */
+function showIntegrityReport(report) {
+  // 创建或更新报告预览区域
+  let reportDiv = document.getElementById('integrityReport');
+  if (!reportDiv) {
+    reportDiv = document.createElement('div');
+    reportDiv.id = 'integrityReport';
+    reportDiv.className = 'integrity-report';
+    // 插入到Schema预览区域下方
+    const schemaPanel = document.getElementById('schemaPanel');
+    if (schemaPanel) {
+      schemaPanel.querySelector('.panel-body').appendChild(reportDiv);
+    }
+  }
+
+  // 构建报告HTML
+  let html = '<div class="report-header"><strong>📊 Integrity Report</strong></div>';
+  html += '<div class="report-summary">';
+  html += `<span class="status-${report.summary.status}">Status: ${report.summary.status.toUpperCase()}</span>`;
+  html += `<span>Completeness: ${(report.summary.completeness * 100).toFixed(1)}%</span>`;
+  html += `<span>Fields: ${report.summary.filledFields}/${report.summary.totalFields}</span>`;
+  html += '</div>';
+
+  if (report.warnings?.length > 0) {
+    html += '<div class="report-warnings"><strong>⚠️ Warnings:</strong><ul>';
+    report.warnings.forEach(w => {
+      html += `<li>${w.field}: ${w.message}</li>`;
+    });
+    html += '</ul></div>';
+  }
+
+  reportDiv.innerHTML = html;
+  reportDiv.style.display = 'block';
+}
+
+// ============================================
 // Export
 // ============================================
 
@@ -1874,10 +2043,16 @@ window.UATUI = {
   showToast,
   updateButtonStates,
   handleFileUpload,
+  handlePackKBClick,
+  handlePackSkillsClick,
+  handleSanitizeToggle,
+  handleIntegrityClick,
+  showIntegrityReport,
   inputFiles,
   outputFiles,
   currentSchema,
-  detectedPlatform
+  detectedPlatform,
+  sanitizeEnabled
 };
 
 // ============================================

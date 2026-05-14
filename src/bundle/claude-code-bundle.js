@@ -24,6 +24,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // Claude Code Bundle 创建（导出）
 // ============================================
 
@@ -148,6 +168,17 @@ function encodeClaudeMDMain(schema) {
   sections.push(`description: "${schema.meta.description || 'AI Assistant'}"`);
   sections.push(`model: "${schema.modelConfig.model || 'claude-sonnet-4-20250514'}"`);
 
+  // Identity扩展字段
+  if (schema.identity.role) {
+    sections.push(`role: "${schema.identity.role}"`);
+  }
+  if (schema.identity.personality) {
+    sections.push(`personality: "${schema.identity.personality}"`);
+  }
+  if (schema.identity.language) {
+    sections.push(`language: "${schema.identity.language}"`);
+  }
+
   // Tools 配置
   sections.push('tools:');
   sections.push('  - filesystem_read');
@@ -222,6 +253,43 @@ function encodeClaudeMDMain(schema) {
       sections.push(`- ${r}`);
     }
     sections.push('');
+  }
+
+  // Memory encoding（使用JSON代码块格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToClaudeMD(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码（使用JSON代码块格式）
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Base');
+      sections.push('');
+      sections.push('```json');
+      sections.push(JSON.stringify({
+        datasets: kbContent.datasets?.map(ds => ({
+          id: ds.id,
+          name: ds.name,
+          type: ds.type
+        })) || [],
+        documents: kbContent.documents?.map(doc => ({
+          id: doc.id,
+          title: doc.title,
+          source: doc.source
+        })) || []
+      }, null, 2));
+      sections.push('```');
+      sections.push('');
+    }
+  }
+
+  // 技能编码（使用JSON代码块格式）
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToJSONBlock(schema.skills));
   }
 
   // 工作流

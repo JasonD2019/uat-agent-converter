@@ -29,6 +29,19 @@ var BundleBase;
 var runParserPool;
 var runEncoderPool;
 
+// Platform Bundle aliases
+var OpenClawBundle;
+var HermesBundle;
+var CursorBundle;
+var WindsurfBundle;
+var ClaudeCodeBundle;
+var DifyBundle;
+var FastGPTBundle;
+var FlowiseBundle;
+var CopilotBundle;
+var CodexBundle;
+var ZedBundle;
+
 
 // ===== src/core/schema.js =====
 /**
@@ -3501,8 +3514,13 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 // ===== src/encoder/encoder-pool.js =====
 /**
- * UAT 多平台编码器集群 v2.0 - Encoder Pool Enhanced
- * 模块6：UAT-Schema v2.0 → 各平台原生格式完整编码
+ * UAT Encoder Pool - 编码器调度器（精简版）
+ * 仅负责调度，实际编码由各平台 Bundle 完成
+ *
+ * v2.1 重构说明：
+ * - 删除冗余编码函数（与 Bundle 重复）
+ * - 统一调用 Bundle.encodeToFiles() 确保输出完整
+ * - 保持向后兼容，runEncoderPool 返回主文件内容
  */
 
 // ============================================
@@ -3514,1190 +3532,72 @@ function runEncoderPool(schema, targetPlatform) {
     throw new Error('Schema 结构不合法');
   }
 
-  let output = '';
-
-  switch (targetPlatform) {
-    case 'dify':
-      output = encodeDifyYAMLEnhanced(schema);
-      break;
-    case 'openclaw':
-      output = encodeOpenClawEnhanced(schema);
-      break;
-    case 'claude':
-      output = encodeClaudeSkillEnhanced(schema);
-      break;
-    case 'fastgpt':
-      output = encodeFastGPTEnhanced(schema);
-      break;
-    case 'flowise':
-      output = encodeFlowiseEnhanced(schema);
-      break;
-    // 新增平台
-    case 'hermes':
-      output = encodeHermesYAML(schema);
-      break;
-    case 'cursor':
-      output = encodeCursorRules(schema);
-      break;
-    case 'windsurf':
-      output = encodeWindsurfRules(schema);
-      break;
-    case 'copilot':
-      output = encodeCopilotInstructions(schema);
-      break;
-    case 'codex':
-      output = encodeCodexAgents(schema);
-      break;
-    case 'zed':
-      output = encodeZedRules(schema);
-      break;
-    default:
-      output = encodePlainTextEnhanced(schema);
-  }
-
-  // 添加知识库提示（如果有引用）
-  output = addKnowledgeBaseNote(output, schema);
-
-  return output;
-}
-
-// ============================================
-// 编码器1：Dify YAML DSL 编码器（增强版）
-// ============================================
-
-function encodeDifyYAMLEnhanced(schema) {
-  const lines = [];
-
-  // 头部
-  lines.push('dify_version: "0.1"');
-  lines.push('');
-
-  // 应用信息
-  lines.push('app:');
-  lines.push(`  name: "${UATCore.escapeYAMLString(schema.meta.name)}"`);
-  lines.push(`  description: "${UATCore.escapeYAMLString(schema.meta.description)}"`);
-  lines.push('  mode: "workflow"');
-  lines.push('');
-
-  // 模型配置
-  lines.push('model:');
-  lines.push(`  provider: openai`);
-  lines.push(`  name: "${schema.modelConfig.model}"`);
-  lines.push(`  temperature: ${schema.modelConfig.temperature}`);
-  lines.push(`  max_tokens: ${schema.modelConfig.maxTokens}`);
-  if (schema.modelConfig.topP !== 1) {
-    lines.push(`  top_p: ${schema.modelConfig.topP}`);
-  }
-  lines.push('');
-
-  // 工作流
-  lines.push('workflow:');
-  lines.push('  graph:');
-  lines.push('    nodes:');
-
-  // Start节点
-  lines.push('      - id: "start_node"');
-  lines.push('        type: "start"');
-  lines.push('        data:');
-  lines.push(`          title: "开始"`);
-  if (schema.identity.systemPrompt) {
-    lines.push(`          prompt_template: "${UATCore.escapeYAMLString(schema.identity.systemPrompt)}"`);
-  }
-  lines.push('');
-
-  // 工作流步骤
-  for (const step of schema.workflow.steps) {
-    encodeDifyWorkflowStep(lines, step, schema);
-  }
-
-  // End节点
-  lines.push('      - id: "end_node"');
-  lines.push('        type: "end"');
-  lines.push('        data:');
-  lines.push(`          title: "结束"`);
-  lines.push('');
-
-  // 边
-  lines.push('    edges:');
-
-  // Start到第一个节点
-  if (schema.workflow.steps.length > 0) {
-    lines.push('      - source: "start_node"');
-    lines.push(`        target: "${schema.workflow.steps[0].stepId}"`);
-  } else {
-    lines.push('      - source: "start_node"');
-    lines.push('        target: "end_node"');
-  }
-
-  // 步骤连接
-  for (const step of schema.workflow.steps) {
-    if (step.nextStepId) {
-      lines.push(`      - source: "${step.stepId}"`);
-      lines.push(`        target: "${step.nextStepId}"`);
-    }
-
-    // 条件分支边
-    for (const cond of step.conditions) {
-      if (cond.targetStepId && cond.operator !== 'default') {
-        lines.push(`      - source: "${step.stepId}"`);
-        lines.push(`        source_handle: "${cond.operator === 'false' ? 'false' : 'true'}"`);
-        lines.push(`        target: "${cond.targetStepId}"`);
-      }
-    }
-  }
-  lines.push('');
-
-  // 知识库引用
-  if (schema.memory.knowledgeBaseRef?.length > 0) {
-    lines.push('knowledge_bases:');
-    for (const kb of schema.memory.knowledgeBaseRef) {
-      lines.push(`  - id: "${kb.id}"`);
-      lines.push(`    name: "${UATCore.escapeYAMLString(kb.name)}"`);
-    }
-    lines.push('');
-  }
-
-  // MCP工具
-  if (schema.tools.mcpServers?.length > 0) {
-    lines.push('mcp_servers:');
-    for (const mcp of schema.tools.mcpServers) {
-      lines.push(`  - name: "${UATCore.escapeYAMLString(mcp.name)}"`);
-      if (mcp.url) lines.push(`    url: "${mcp.url}"`);
-      if (mcp.config?.command) lines.push(`    command: "${mcp.config.command}"`);
-      if (mcp.config?.args?.length > 0) {
-        lines.push(`    args: [${mcp.config.args.map(a => `"${a}"`).join(', ')}]`);
-      }
-    }
-    lines.push('');
-  }
-
-  // API工具
-  if (schema.tools.apiEndpoints?.length > 0) {
-    lines.push('api_tools:');
-    for (const api of schema.tools.apiEndpoints) {
-      lines.push(`  - id: "${api.id}"`);
-      lines.push(`    name: "${UATCore.escapeYAMLString(api.name)}"`);
-      lines.push(`    method: "${api.method}"`);
-      lines.push(`    url: "${api.url}"`);
-
-      if (api.headers && Object.keys(api.headers).length > 0) {
-        lines.push('    headers:');
-        for (const [k, v] of Object.entries(api.headers)) {
-          lines.push(`      ${k}: "${v}"`);
-        }
-      }
-
-      if (api.auth?.type !== 'none') {
-        lines.push(`    auth_type: "${api.auth.type}"`);
-      }
-    }
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
-function encodeDifyWorkflowStep(lines, step, schema) {
-  lines.push(`      - id: "${step.stepId}"`);
-  lines.push(`        type: "${mapStepToDifyType(step.type)}"`);
-  lines.push('        data:');
-  lines.push(`          title: "${UATCore.escapeYAMLString(step.name)}"`);
-
-  // Prompt节点
-  if (step.type === 'prompt' && step.content) {
-    lines.push('          model:');
-    lines.push(`            name: "${schema.modelConfig.model}"`);
-    lines.push(`            temperature: ${schema.modelConfig.temperature}`);
-    lines.push(`          prompt_template: "${UATCore.escapeYAMLString(step.content)}"`);
-  }
-
-  // 条件节点
-  if (step.type === 'condition' && step.conditions?.length > 0) {
-    lines.push('          conditions:');
-    for (const cond of step.conditions) {
-      if (cond.operator !== 'default' && cond.operator !== 'false') {
-        lines.push(`            - variable: "${cond.variable}"`);
-        lines.push(`              operator: "${cond.operator}"`);
-        lines.push(`              value: "${UATCore.escapeYAMLString(cond.value)}"`);
-      }
-    }
-
-    // 默认分支
-    const defaultCond = step.conditions.find(c => c.operator === 'default' || c.priority < 0);
-    if (defaultCond) {
-      lines.push(`          default_target_node: "${defaultCond.targetStepId}"`);
-    }
-  }
-
-  // 循环节点
-  if (step.type === 'loop' && step.loopConfig) {
-    lines.push(`          iter_variable: "${step.loopConfig.iterateOver}"`);
-    lines.push(`          item_variable: "${step.loopConfig.variableName}"`);
-    lines.push(`          max_iterations: ${step.loopConfig.maxIterations}`);
-    if (step.loopConfig.breakCondition) {
-      lines.push(`          break_condition: "${UATCore.escapeYAMLString(step.loopConfig.breakCondition)}"`);
-    }
-  }
-
-  // API节点
-  if (step.type === 'api' && step.content) {
-    try {
-      const apiConfig = JSON.parse(step.content);
-      lines.push(`          url: "${apiConfig.url}"`);
-      lines.push(`          method: "${apiConfig.method || 'POST'}"`);
-      if (apiConfig.headers) {
-        lines.push('          headers:');
-        for (const [k, v] of Object.entries(apiConfig.headers)) {
-          lines.push(`            ${k}: "${v}"`);
-        }
-      }
-    } catch(e) {
-      lines.push(`          url: ""`);
-    }
-  }
-
-  // 错误处理
-  if (step.onError?.action) {
-    lines.push('          error_handling:');
-    lines.push(`            action: "${step.onError.action}"`);
-    if (step.onError.retryCount > 0) {
-      lines.push(`            retry_count: ${step.onError.retryCount}`);
-    }
-  }
-
-  lines.push('');
-}
-
-function mapStepToDifyType(stepType) {
-  const typeMap = {
-    'prompt': 'llm',
-    'condition': 'if-else',
-    'loop': 'iteration',
-    'parallel': 'parallel',
-    'api': 'http-request',
-    'function': 'variable-setter',
-    'end': 'end'
-  };
-  return typeMap[stepType] || 'llm';
-}
-
-// ============================================
-// 编码器2：FastGPT JSON 编码器（增强版）
-// ============================================
-
-function encodeFastGPTEnhanced(schema) {
-  const data = {
-    version: "1.0",
-    appConfig: {
-      name: schema.meta.name,
-      intro: schema.meta.description,
-      type: schema.workflow.steps.length > 0 ? "workflow" : "chat",
-      modules: []
-    },
-    chatConfig: {
-      systemPrompt: schema.identity.systemPrompt,
-      role: schema.identity.role || "assistant"
-    },
-    modelConfig: {
-      model: schema.modelConfig.model,
-      temperature: schema.modelConfig.temperature,
-      maxTokens: schema.modelConfig.maxTokens,
-      topP: schema.modelConfig.topP,
-      frequencyPenalty: schema.modelConfig.advanced?.frequencyPenalty || 0,
-      presencePenalty: schema.modelConfig.advanced?.presencePenalty || 0
-    },
-    workflow: {
-      nodes: [],
-      edges: []
-    },
-    datasets: [],
-    plugins: []
+  // 获取目标 Bundle
+  const bundles = {
+    dify: window.DifyBundle,
+    openclaw: window.OpenClawBundle,
+    hermes: window.HermesBundle,
+    cursor: window.CursorBundle,
+    windsurf: window.WindsurfBundle,
+    claude: window.ClaudeCodeBundle,
+    fastgpt: window.FastGPTBundle,
+    flowise: window.FlowiseBundle,
+    copilot: window.CopilotBundle,
+    codex: window.CodexBundle,
+    zed: window.ZedBundle
   };
 
-  // 工作流节点
-  for (const step of schema.workflow.steps) {
-    const node = {
-      nodeId: step.stepId,
-      name: step.name,
-      type: mapStepToFastGPTType(step.type),
-      inputs: {},
-      outputs: []
-    };
-
-    if (step.type === 'prompt') {
-      node.inputs = {
-        prompt: step.content,
-        model: schema.modelConfig.model,
-        temperature: schema.modelConfig.temperature
-      };
-    }
-
-    if (step.type === 'condition') {
-      node.type = 'ifElseNode';
-      node.inputs = {
-        conditions: step.conditions.map(c => ({
-          variable: c.variable,
-          operator: c.operator,
-          value: c.value,
-          targetNodeId: c.targetStepId
-        }))
-      };
-    }
-
-    if (step.type === 'loop') {
-      node.type = 'loopNode';
-      node.inputs = {
-        array: step.loopConfig?.iterateOver || '',
-        itemName: step.loopConfig?.variableName || 'item',
-        maxIterations: step.loopConfig?.maxIterations || 100
-      };
-    }
-
-    if (step.type === 'api') {
-      node.type = 'httpRequest468';
-      try {
-        const apiConfig = JSON.parse(step.content || '{}');
-        node.inputs = {
-          url: apiConfig.url || '',
-          method: apiConfig.method || 'POST',
-          headers: apiConfig.headers || {},
-          body: apiConfig.body || {}
-        };
-      } catch(e) {
-        node.inputs = { url: '', method: 'POST' };
-      }
-    }
-
-    if (step.onError?.action) {
-      node.inputs.errorAction = step.onError.action;
-    }
-
-    data.workflow.nodes.push(node);
+  const bundle = bundles[targetPlatform];
+  if (!bundle) {
+    throw new Error(`不支持的平台: ${targetPlatform}`);
   }
 
-  // 边
-  for (const step of schema.workflow.steps) {
-    if (step.nextStepId) {
-      data.workflow.edges.push({
-        source: step.stepId,
-        target: step.nextStepId
-      });
-    }
+  // 调用 Bundle 的 encodeToFiles 获取完整文件结构
+  const files = bundle.encodeToFiles(schema);
 
-    for (const cond of step.conditions) {
-      if (cond.targetStepId) {
-        data.workflow.edges.push({
-          source: step.stepId,
-          target: cond.targetStepId,
-          conditionType: cond.operator
-        });
-      }
-    }
-  }
-
-  // 知识库引用
-  for (const kb of schema.memory.knowledgeBaseRef) {
-    data.datasets.push({
-      id: kb.id,
-      name: kb.name
-    });
-  }
-
-  // API工具
-  for (const api of schema.tools.apiEndpoints) {
-    data.plugins.push({
-      id: api.id,
-      name: api.name,
-      method: api.method,
-      url: api.url,
-      headers: api.headers,
-      authType: api.auth?.type || 'none',
-      retryCount: api.errorHandling?.retryCount || 3
-    });
-  }
-
-  return JSON.stringify(data, null, 2);
-}
-
-function mapStepToFastGPTType(stepType) {
-  const typeMap = {
-    'prompt': 'chatNode',
-    'condition': 'ifElseNode',
-    'loop': 'loopNode',
-    'api': 'httpRequest468',
-    'function': 'variableUpdateNode',
-    'end': 'answerNode'
-  };
-  return typeMap[stepType] || 'chatNode';
+  // 返回主文件内容（向后兼容单文件输出场景）
+  const mainFile = Object.keys(files)[0];
+  return files[mainFile] || '';
 }
 
 // ============================================
-// 编码器3：Flowise JSON 编码器（增强版）
+// 辅助函数：获取所有文件（新增）
 // ============================================
 
-function encodeFlowiseEnhanced(schema) {
-  const data = {
-    id: UATCore.generateUUID(),
-    name: schema.meta.name,
-    description: schema.meta.description,
-    nodes: [],
-    edges: []
+function runEncoderPoolGetFiles(schema, targetPlatform) {
+  if (!UATCore.checkSchemaValid(schema)) {
+    throw new Error('Schema 结构不合法');
+  }
+
+  const bundles = {
+    dify: window.DifyBundle,
+    openclaw: window.OpenClawBundle,
+    hermes: window.HermesBundle,
+    cursor: window.CursorBundle,
+    windsurf: window.WindsurfBundle,
+    claude: window.ClaudeCodeBundle,
+    fastgpt: window.FastGPTBundle,
+    flowise: window.FlowiseBundle,
+    copilot: window.CopilotBundle,
+    codex: window.CodexBundle,
+    zed: window.ZedBundle
   };
 
-  // 主AI节点
-  const mainNodeId = UATCore.generateUUID();
-  data.nodes.push({
-    id: mainNodeId,
-    type: "ChatOpenAI",
-    position: { x: 100, y: 100 },
-    data: {
-      label: "AI Assistant",
-      systemPrompt: schema.identity.systemPrompt,
-      modelName: schema.modelConfig.model,
-      temperature: schema.modelConfig.temperature,
-      maxTokens: schema.modelConfig.maxTokens
-    }
-  });
-
-  // 工作流步骤
-  let prevNodeId = mainNodeId;
-  let x = 100;
-
-  for (const step of schema.workflow.steps) {
-    const nodeId = step.stepId || UATCore.generateUUID();
-    x += 250;
-
-    const node = {
-      id: nodeId,
-      type: mapStepToFlowiseType(step.type),
-      position: { x, y: 100 },
-      data: {
-        label: step.name
-      }
-    };
-
-    if (step.type === 'prompt' && step.content) {
-      node.type = 'PromptTemplate';
-      node.data.template = step.content;
-    }
-
-    if (step.type === 'condition') {
-      node.type = 'IfCondition';
-      node.data.variableName = step.conditions[0]?.variable || '';
-      node.data.conditionType = step.conditions[0]?.operator || 'equals';
-      node.data.value = step.conditions[0]?.value || '';
-    }
-
-    if (step.type === 'api') {
-      node.type = 'HTTPRequest';
-      try {
-        const apiConfig = JSON.parse(step.content || '{}');
-        node.data.url = apiConfig.url;
-        node.data.method = apiConfig.method || 'GET';
-        node.data.headers = apiConfig.headers;
-      } catch(e) {}
-    }
-
-    data.nodes.push(node);
-
-    // 边
-    data.edges.push({
-      id: UATCore.generateUUID(),
-      source: prevNodeId,
-      target: nodeId,
-      sourceHandle: "output",
-      targetHandle: "input"
-    });
-
-    prevNodeId = nodeId;
+  const bundle = bundles[targetPlatform];
+  if (!bundle) {
+    throw new Error(`不支持的平台: ${targetPlatform}`);
   }
 
-  // API工具节点
-  let y = 200;
-  for (const api of schema.tools.apiEndpoints) {
-    const apiNodeId = api.id || UATCore.generateUUID();
-
-    data.nodes.push({
-      id: apiNodeId,
-      type: "HTTPRequest",
-      position: { x: 100, y },
-      data: {
-        label: api.name,
-        method: api.method,
-        url: api.url,
-        headers: api.headers
-      }
-    });
-
-    y += 100;
-  }
-
-  return JSON.stringify(data, null, 2);
-}
-
-function mapStepToFlowiseType(stepType) {
-  const typeMap = {
-    'prompt': 'PromptTemplate',
-    'condition': 'IfCondition',
-    'loop': 'Loop',
-    'api': 'HTTPRequest',
-    'function': 'VariableSetter',
-    'end': 'End'
-  };
-  return typeMap[stepType] || 'PromptTemplate';
+  return bundle.encodeToFiles(schema);
 }
 
 // ============================================
-// 编码器4：Claude Skill 编码器（增强版）
+// 导出模块接口
 // ============================================
-
-function encodeClaudeSkillEnhanced(schema) {
-  const sections = [];
-
-  // YAML头部
-  sections.push('---');
-  sections.push(`name: "${UATCore.escapeYAMLString(schema.meta.name)}"`);
-  sections.push(`description: "${UATCore.escapeYAMLString(schema.meta.description)}"`);
-  sections.push(`model: "${schema.modelConfig.model}"`);
-
-  // MCP工具
-  if (schema.tools.mcpServers?.length > 0) {
-    sections.push('mcpServers:');
-    for (const mcp of schema.tools.mcpServers) {
-      sections.push(`  - ${mcp.id}:`);
-      if (mcp.url) sections.push(`      url: "${mcp.url}"`);
-      if (mcp.config?.command) sections.push(`      command: "${mcp.config.command}"`);
-      if (mcp.config?.args?.length > 0) {
-        sections.push(`      args: [${mcp.config.args.map(a => `"${a}"`).join(', ')}]`);
-      }
-      if (mcp.config?.env && Object.keys(mcp.config.env).length > 0) {
-        sections.push('      env:');
-        for (const [k, v] of Object.entries(mcp.config.env)) {
-          sections.push(`        ${k}: "${v}"`);
-        }
-      }
-      if (mcp.config?.transport) {
-        sections.push(`      transport: "${mcp.config.transport}"`);
-      }
-    }
-  }
-
-  sections.push('---');
-  sections.push('');
-
-  // 指令正文
-  sections.push('# Instructions');
-  sections.push('');
-  sections.push(schema.identity.systemPrompt);
-  sections.push('');
-
-  // Prompt变量
-  if (schema.identity.promptVariables?.length > 0) {
-    sections.push('## Variables');
-    sections.push('');
-    for (const v of schema.identity.promptVariables) {
-      sections.push(`- {{${v.name}}}: ${v.type}${v.default ? ` (default: ${v.default})` : ''}`);
-    }
-    sections.push('');
-  }
-
-  // 工作流
-  if (schema.workflow.steps?.length > 0) {
-    sections.push('# Workflow');
-    sections.push('');
-
-    for (const step of schema.workflow.steps) {
-      sections.push(`## ${step.name}`);
-      sections.push('');
-      sections.push(`Type: ${step.type}`);
-      sections.push(`ID: ${step.stepId}`);
-      sections.push('');
-
-      if (step.content) {
-        sections.push(step.content);
-        sections.push('');
-      }
-
-      if (step.type === 'condition' && step.conditions?.length > 0) {
-        sections.push('**Conditions:**');
-        for (const cond of step.conditions) {
-          if (cond.operator !== 'default') {
-            sections.push(`- If ${cond.variable} ${cond.operator} "${cond.value}" → ${cond.targetStepId}`);
-          }
-        }
-        sections.push('');
-      }
-
-      if (step.type === 'loop' && step.loopConfig?.iterateOver) {
-        sections.push('**Loop Configuration:**');
-        sections.push(`- Iterate: ${step.loopConfig.iterateOver}`);
-        sections.push(`- Variable: ${step.loopConfig.variableName}`);
-        sections.push(`- Max: ${step.loopConfig.maxIterations}`);
-        sections.push('');
-      }
-    }
-  }
-
-  return sections.join('\n');
-}
-
-// ============================================
-// 编码器5：OpenClaw Markdown 编码器（增强版）
-// ============================================
-
-function encodeOpenClawEnhanced(schema) {
-  const sections = [];
-
-  // Identity块
-  sections.push('# Identity');
-  sections.push('');
-  sections.push(`Name: ${schema.meta.name}`);
-  sections.push('');
-
-  if (schema.identity.role) {
-    sections.push(`Role: ${schema.identity.role}`);
-    sections.push('');
-  }
-
-  sections.push('## System Prompt');
-  sections.push('');
-  sections.push(schema.identity.systemPrompt);
-  sections.push('');
-
-  // Prompt变量
-  if (schema.identity.promptVariables?.length > 0) {
-    sections.push('## Variables');
-    sections.push('');
-    for (const v of schema.identity.promptVariables) {
-      sections.push(`- {{${v.name}}}: ${v.default || 'empty'}`);
-    }
-    sections.push('');
-  }
-
-  // Soul块（约束）
-  sections.push('# Soul');
-  sections.push('');
-  if (schema.identity.constraints?.length > 0) {
-    for (const constraint of schema.identity.constraints) {
-      sections.push(constraint);
-      sections.push('');
-    }
-  }
-  if (schema.identity.outputRules?.length > 0) {
-    sections.push('## Output Rules');
-    sections.push('');
-    for (const rule of schema.identity.outputRules) {
-      sections.push(`- ${rule}`);
-    }
-    sections.push('');
-  }
-
-  // Skills块（工作流）
-  sections.push('# Skills');
-  sections.push('');
-  if (schema.workflow.steps?.length > 0) {
-    for (const step of schema.workflow.steps) {
-      sections.push(`## ${step.name}`);
-      sections.push('');
-      sections.push(`Type: ${step.type}`);
-      sections.push('');
-
-      if (step.content) {
-        sections.push(step.content);
-        sections.push('');
-      }
-
-      // 条件
-      if (step.type === 'condition' && step.conditions?.length > 0) {
-        sections.push('Conditions:');
-        for (const cond of step.conditions) {
-          sections.push(`- ${cond.variable} ${cond.operator} "${cond.value}" → ${cond.targetStepId}`);
-        }
-        sections.push('');
-      }
-
-      // 循环
-      if (step.type === 'loop' && step.loopConfig?.iterateOver) {
-        sections.push(`Loop: ${step.loopConfig.iterateOver} as ${step.loopConfig.variableName}`);
-        sections.push('');
-      }
-    }
-  } else {
-    sections.push('[No skills defined]');
-    sections.push('');
-  }
-
-  // Model配置
-  sections.push('# Model');
-  sections.push('');
-  sections.push(`model: ${schema.modelConfig.model}`);
-  sections.push(`temperature: ${schema.modelConfig.temperature}`);
-  sections.push(`max_tokens: ${schema.modelConfig.maxTokens}`);
-  sections.push('');
-
-  // 工具
-  if (schema.tools.mcpServers?.length > 0 || schema.tools.apiEndpoints?.length > 0) {
-    sections.push('# Tools');
-    sections.push('');
-
-    for (const mcp of schema.tools.mcpServers) {
-      sections.push(`## MCP: ${mcp.name}`);
-      sections.push(`- ID: ${mcp.id}`);
-      if (mcp.url) sections.push(`- URL: ${mcp.url}`);
-      sections.push('');
-    }
-
-    for (const api of schema.tools.apiEndpoints) {
-      sections.push(`## API: ${api.name}`);
-      sections.push(`- Method: ${api.method}`);
-      sections.push(`- URL: ${api.url}`);
-      sections.push('');
-    }
-  }
-
-  return sections.join('\n');
-}
-
-// ============================================
-// 编码器6：纯文本编码器（增强版）
-// ============================================
-
-function encodePlainTextEnhanced(schema) {
-  let output = '';
-
-  if (schema.meta.name) {
-    output += `# ${schema.meta.name}\n\n`;
-  }
-
-  if (schema.meta.description) {
-    output += `${schema.meta.description}\n\n`;
-  }
-
-  output += schema.identity.systemPrompt || '';
-
-  return output;
-}
-
-// ============================================
-// 辅助函数：添加知识库提示
-// ============================================
-
-function addKnowledgeBaseNote(output, schema) {
-  if (schema.memory.knowledgeBaseRef?.length > 0) {
-    const noteLines = [
-      '',
-      '',
-      '# ========== 知识库配置提示 ==========',
-      '# 以下知识库引用需在目标平台重新配置:',
-    ];
-
-    for (const kb of schema.memory.knowledgeBaseRef) {
-      noteLines.push(`# - ${kb.name} (原ID: ${kb.id}, 来源: ${kb.platform || 'unknown'})`);
-    }
-
-    noteLines.push('# ==========================================');
-
-    return output + noteLines.join('\n');
-  }
-
-  return output;
-}
-
-// ============================================
-// 编码器7：Hermes YAML 编码器（新增）
-// ============================================
-
-function encodeHermesYAML(schema) {
-  const lines = [];
-
-  // 版本头部
-  lines.push('hermes_version: "1.0"');
-  lines.push('');
-
-  // Agent 块
-  lines.push('agent:');
-  lines.push(`  name: "${UATCore.escapeYAMLString(schema.meta.name)}"`);
-  lines.push(`  description: "${UATCore.escapeYAMLString(schema.meta.description)}"`);
-  lines.push(`  role: "${schema.identity.role || 'assistant'}"`);
-  lines.push('');
-
-  // Model 块
-  lines.push('model:');
-  lines.push(`  provider: "${extractModelProvider(schema.modelConfig.model)}"`);
-  lines.push(`  name: "${schema.modelConfig.model}"`);
-  lines.push(`  temperature: ${schema.modelConfig.temperature}`);
-  lines.push(`  max_tokens: ${schema.modelConfig.maxTokens}`);
-  if (schema.modelConfig.topP !== 1) {
-    lines.push(`  top_p: ${schema.modelConfig.topP}`);
-  }
-  lines.push('');
-
-  // Prompt 块
-  lines.push('prompt:');
-  lines.push(`  system: "${UATCore.escapeYAMLString(schema.identity.systemPrompt)}"`);
-
-  if (schema.identity.constraints?.length > 0) {
-    lines.push('  constraints:');
-    for (const c of schema.identity.constraints) {
-      lines.push(`    - "${UATCore.escapeYAMLString(c)}"`);
-    }
-  }
-  lines.push('');
-
-  // Tools 块
-  if (schema.tools.functions?.length > 0 || schema.tools.mcpServers?.length > 0) {
-    lines.push('tools:');
-
-    // Functions
-    if (schema.tools.functions?.length > 0) {
-      lines.push('  functions:');
-      for (const fn of schema.tools.functions) {
-        lines.push(`    - name: "${fn.name}"`);
-        if (fn.description) {
-          lines.push(`      description: "${UATCore.escapeYAMLString(fn.description)}"`);
-        }
-        if (fn.inputs?.length > 0) {
-          lines.push('      parameters:');
-          for (const input of fn.inputs) {
-            lines.push(`        ${input.name}: { type: "${input.type}" }`);
-          }
-        }
-      }
-    }
-
-    // MCP Servers
-    if (schema.tools.mcpServers?.length > 0) {
-      lines.push('  mcp_servers:');
-      for (const mcp of schema.tools.mcpServers) {
-        lines.push(`    - name: "${mcp.name}"`);
-        if (mcp.url) {
-          lines.push(`      url: "${mcp.url}"`);
-        }
-      }
-    }
-    lines.push('');
-  }
-
-  // Workflow 块
-  if (schema.workflow.steps?.length > 0) {
-    lines.push('workflow:');
-    lines.push('  steps:');
-
-    for (let i = 0; i < schema.workflow.steps.length; i++) {
-      const step = schema.workflow.steps[i];
-      lines.push(`    - id: "${step.stepId}"`);
-      lines.push(`      type: "${mapStepToHermesType(step.type)}"`);
-
-      if (step.type === 'prompt' && step.content) {
-        lines.push(`      action: "${UATCore.escapeYAMLString(step.content)}"`);
-      }
-
-      if (step.type === 'api') {
-        // 尝试解析工具名称
-        const toolMatch = step.content?.match(/Use tool: (.+)/);
-        if (toolMatch) {
-          lines.push(`      tool: "${toolMatch[1]}"`);
-        }
-      }
-
-      if (step.type === 'condition' && step.conditions?.length > 0) {
-        lines.push('      conditions:');
-        for (const cond of step.conditions) {
-          if (cond.operator !== 'default') {
-            lines.push(`        - variable: "${cond.variable}"`);
-            lines.push(`          operator: "${cond.operator}"`);
-            lines.push(`          value: "${UATCore.escapeYAMLString(cond.value)}"`);
-            lines.push(`          target: "${cond.targetStepId}"`);
-          }
-        }
-      }
-    }
-    lines.push('');
-  }
-
-  // Memory 块
-  lines.push('memory:');
-  lines.push(`  type: "${schema.memory.sessionMemory?.enabled ? 'conversation' : 'none'}"`);
-  if (schema.memory.sessionMemory?.enabled) {
-    lines.push(`  max_history: ${schema.memory.sessionMemory.maxMessages || 50}`);
-  }
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-function extractModelProvider(modelName) {
-  if (modelName.includes('gpt') || modelName.includes('o1')) return 'openai';
-  if (modelName.includes('claude')) return 'anthropic';
-  if (modelName.includes('gemini')) return 'google';
-  if (modelName.includes('llama') || modelName.includes('mistral')) return 'open-source';
-  return 'openai';
-}
-
-function mapStepToHermesType(stepType) {
-  const typeMap = {
-    'prompt': 'prompt',
-    'api': 'tool',
-    'condition': 'condition',
-    'loop': 'loop',
-    'parallel': 'parallel',
-    'function': 'tool',
-    'end': 'end'
-  };
-  return typeMap[stepType] || 'prompt';
-}
-
-// ============================================
-// 编码器8：Cursor Rules 编码器（新增）
-// ============================================
-
-function encodeCursorRules(schema) {
-  const lines = [];
-
-  // 头部注释
-  lines.push('# Cursor Rules');
-  lines.push('# Generated by UAT Converter');
-  lines.push('');
-
-  // 项目名称
-  if (schema.meta.name) {
-    lines.push(`# Project: ${schema.meta.name}`);
-    lines.push('');
-  }
-
-  // 系统提示词（转换为规则格式）
-  if (schema.identity.systemPrompt) {
-    lines.push('## General Guidelines');
-    lines.push('');
-
-    // 将提示词转换为规则列表
-    const sentences = schema.identity.systemPrompt.split(/[。\n]/).filter(s => s.trim());
-    for (const sentence of sentences) {
-      if (sentence.trim()) {
-        lines.push(`- ${sentence.trim()}`);
-      }
-    }
-    lines.push('');
-  }
-
-  // 约束规则
-  if (schema.identity.constraints?.length > 0) {
-    lines.push('## Code Rules');
-    lines.push('');
-    for (const c of schema.identity.constraints) {
-      lines.push(`- ${c}`);
-    }
-    lines.push('');
-  }
-
-  // 输出规则
-  if (schema.identity.outputRules?.length > 0) {
-    lines.push('## Output Rules');
-    lines.push('');
-    for (const r of schema.identity.outputRules) {
-      lines.push(`- ${r}`);
-    }
-    lines.push('');
-  }
-
-  // 模型偏好（Cursor 支持）
-  lines.push('## Model Preferences');
-  lines.push('');
-  lines.push(`- Prefer model: ${schema.modelConfig.model}`);
-  lines.push(`- Temperature: ${schema.modelConfig.temperature}`);
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-// ============================================
-// 编码器9：Windsurf Rules 编码器（新增）
-// ============================================
-
-function encodeWindsurfRules(schema) {
-  const lines = [];
-
-  lines.push('# Windsurf Rules');
-  lines.push('# Generated by UAT Converter');
-  lines.push('');
-
-  lines.push('## Code Guidelines');
-  lines.push('');
-
-  if (schema.identity.systemPrompt) {
-    const sentences = schema.identity.systemPrompt.split(/[。\n]/).filter(s => s.trim());
-    for (const sentence of sentences) {
-      lines.push(`- ${sentence.trim()}`);
-    }
-    lines.push('');
-  }
-
-  if (schema.identity.constraints?.length > 0) {
-    lines.push('## Additional Rules');
-    lines.push('');
-    for (const c of schema.identity.constraints) {
-      lines.push(`- ${c}`);
-    }
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
-// ============================================
-// 编码器10：GitHub Copilot 编码器（新增）
-// ============================================
-
-function encodeCopilotInstructions(schema) {
-  const lines = [];
-
-  lines.push('# GitHub Copilot Instructions');
-  lines.push('');
-  lines.push('This file provides instructions for GitHub Copilot to follow when generating code.');
-  lines.push('');
-
-  // 通用指南
-  lines.push('## General Guidelines');
-  lines.push('');
-  if (schema.identity.systemPrompt) {
-    lines.push(schema.identity.systemPrompt);
-    lines.push('');
-  }
-
-  // 代码风格
-  if (schema.identity.constraints?.length > 0) {
-    lines.push('## Code Style');
-    lines.push('');
-    for (const c of schema.identity.constraints) {
-      lines.push(`- ${c}`);
-    }
-    lines.push('');
-  }
-
-  // 输出规则
-  if (schema.identity.outputRules?.length > 0) {
-    lines.push('## Output Guidelines');
-    lines.push('');
-    for (const r of schema.identity.outputRules) {
-      lines.push(`- ${r}`);
-    }
-    lines.push('');
-  }
-
-  // 模型建议
-  lines.push('## Model Suggestions');
-  lines.push('');
-  lines.push(`- Recommended model: ${schema.modelConfig.model}`);
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-// ============================================
-// 编码器11：Codex CLI 编码器（新增）
-// ============================================
-
-function encodeCodexAgents(schema) {
-  const sections = [];
-
-  // YAML 头部
-  sections.push('---');
-  sections.push(`name: "${UATCore.escapeYAMLString(schema.meta.name)}"`);
-  sections.push(`description: "${UATCore.escapeYAMLString(schema.meta.description)}"`);
-  sections.push(`model: "${schema.modelConfig.model}"`);
-
-  // 工具声明（简化版）
-  if (schema.tools.functions?.length > 0 || schema.tools.apiEndpoints?.length > 0) {
-    sections.push('tools:');
-    for (const fn of schema.tools.functions) {
-      sections.push(`  - ${fn.name}`);
-    }
-    for (const api of schema.tools.apiEndpoints) {
-      sections.push(`  - ${api.name}`);
-    }
-  }
-
-  sections.push('---');
-  sections.push('');
-
-  // 正文指令
-  sections.push('# Instructions');
-  sections.push('');
-  sections.push(schema.identity.systemPrompt);
-  sections.push('');
-
-  // 工作流
-  if (schema.workflow.steps?.length > 0) {
-    sections.push('# Workflow');
-    sections.push('');
-    for (const step of schema.workflow.steps) {
-      sections.push(`## ${step.name}`);
-      sections.push('');
-      sections.push(`Type: ${step.type}`);
-      if (step.content) {
-        sections.push(step.content);
-      }
-      sections.push('');
-    }
-  }
-
-  return sections.join('\n');
-}
-
-// ============================================
-// 编码器12：Zed Editor 编码器（新增）
-// ============================================
-
-function encodeZedRules(schema) {
-  const lines = [];
-
-  lines.push('# Zed Editor Rules');
-  lines.push('# Generated by UAT Converter');
-  lines.push('');
-
-  // 系统提示词
-  if (schema.identity.systemPrompt) {
-    lines.push('## Guidelines');
-    lines.push('');
-    lines.push(schema.identity.systemPrompt);
-    lines.push('');
-  }
-
-  // 约束
-  if (schema.identity.constraints?.length > 0) {
-    lines.push('## Rules');
-    lines.push('');
-    for (const c of schema.identity.constraints) {
-      lines.push(`- ${c}`);
-    }
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
-// ============================================
-// 导出模块接口（向后兼容）
-// ============================================
-
-// 注意：UATEncoder 类已在 encoder-registry.js 中定义
-// 此处仅导出原有函数接口以保持向后兼容
 
 window.UATEncoderLegacy = {
   runEncoderPool,
-  encodeDifyYAMLEnhanced,
-  encodeFastGPTEnhanced,
-  encodeFlowiseEnhanced,
-  encodeClaudeSkillEnhanced,
-  encodeOpenClawEnhanced,
-  encodeHermesYAML,
-  encodeCursorRules,
-  encodeWindsurfRules,
-  encodeCopilotInstructions,
-  encodeCodexAgents,
-  encodeZedRules,
-  encodePlainTextEnhanced,
-  addKnowledgeBaseNote
+  runEncoderPoolGetFiles
 };
 
 // Node.js 导出（双环境兼容）
@@ -4770,24 +3670,6 @@ window.UATEncoder = UATEncoder;
 // Node.js 导出（双环境兼容）
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = UATEncoder;
-}
-
-// 向后兼容：从 encoder-pool.js 导入原有函数（如果存在）
-if (window.UATEncoderLegacy) {
-  UATEncoder.runEncoderPool = window.UATEncoderLegacy.runEncoderPool;
-  UATEncoder.encodeDifyYAMLEnhanced = window.UATEncoderLegacy.encodeDifyYAMLEnhanced;
-  UATEncoder.encodeFastGPTEnhanced = window.UATEncoderLegacy.encodeFastGPTEnhanced;
-  UATEncoder.encodeFlowiseEnhanced = window.UATEncoderLegacy.encodeFlowiseEnhanced;
-  UATEncoder.encodeClaudeSkillEnhanced = window.UATEncoderLegacy.encodeClaudeSkillEnhanced;
-  UATEncoder.encodeOpenClawEnhanced = window.UATEncoderLegacy.encodeOpenClawEnhanced;
-  UATEncoder.encodeHermesYAML = window.UATEncoderLegacy.encodeHermesYAML;
-  UATEncoder.encodeCursorRules = window.UATEncoderLegacy.encodeCursorRules;
-  UATEncoder.encodeWindsurfRules = window.UATEncoderLegacy.encodeWindsurfRules;
-  UATEncoder.encodeCopilotInstructions = window.UATEncoderLegacy.encodeCopilotInstructions;
-  UATEncoder.encodeCodexAgents = window.UATEncoderLegacy.encodeCodexAgents;
-  UATEncoder.encodeZedRules = window.UATEncoderLegacy.encodeZedRules;
-  UATEncoder.encodePlainTextEnhanced = window.UATEncoderLegacy.encodePlainTextEnhanced;
-  UATEncoder.addKnowledgeBaseNote = window.UATEncoderLegacy.addKnowledgeBaseNote;
 }
 // UATEncoder class defined above and exported to window.UATEncoder
 
@@ -5561,6 +4443,58 @@ function encodeKnowledgeRefToMarkdown(kbRefs) {
   return md;
 }
 
+/**
+ * 编码knowledgeBaseContent为Markdown列表格式
+ * @param {Object} kbContent - knowledgeBaseContent对象
+ * @returns {string} Markdown列表内容
+ */
+function encodeKnowledgeToList(kbContent) {
+  if (!kbContent) return '';
+
+  let md = '## Knowledge Base\n\n';
+
+  // Datasets
+  if (kbContent.datasets?.length) {
+    md += '### Datasets\n\n';
+    kbContent.datasets.forEach(ds => {
+      md += `- **${ds.name || 'Dataset'}** (${ds.type || 'text'})\n`;
+      if (ds.content) {
+        md += `  ${ds.content.substring(0, 200)}${ds.content.length > 200 ? '...' : ''}\n`;
+      }
+    });
+    md += '\n';
+  }
+
+  // Documents
+  if (kbContent.documents?.length) {
+    md += '### Documents\n\n';
+    kbContent.documents.forEach(doc => {
+      md += `- **${doc.title || 'Document'}**\n`;
+      if (doc.source) {
+        md += `  Source: ${doc.source}\n`;
+      }
+    });
+    md += '\n';
+  }
+
+  // Q&A Pairs
+  if (kbContent.qaPairs?.length) {
+    md += '### Q&A Pairs\n\n';
+    md += `- ${kbContent.qaPairs.length} Q&A pairs available\n\n`;
+  }
+
+  // Rules
+  if (kbContent.rules?.length) {
+    md += '### Rules\n\n';
+    kbContent.rules.forEach(rule => {
+      md += `- **${rule.name || 'Rule'}**: ${rule.condition || ''}\n`;
+    });
+    md += '\n';
+  }
+
+  return md;
+}
+
 // ============================================
 // CSV导出格式
 // ============================================
@@ -5695,6 +4629,7 @@ window.UATKnowledgeEncoder = {
   // Markdown格式
   encodeKnowledgeToMarkdown,
   encodeKnowledgeRefToMarkdown,
+  encodeKnowledgeToList,
 
   // CSV格式
   encodeKnowledgeToCSV,
@@ -5876,6 +4811,23 @@ function encodeSkillsToMarkdownList(skills) {
     });
 
     md += '\n';
+  });
+
+  return md;
+}
+
+/**
+ * 编码skillsLayer为简单列表格式（别名）
+ * @param {Object} skills - skillsLayer对象
+ * @returns {string} Markdown列表内容
+ */
+function encodeSkillsToList(skills) {
+  if (!skills || !skills.skills?.length) return '';
+
+  let md = '## Skills\n\n';
+
+  skills.skills.forEach(skill => {
+    md += `- **${skill.name || 'Skill'}**: ${skill.description || 'No description'}\n`;
   });
 
   return md;
@@ -6203,6 +5155,7 @@ window.UATSkillsEncoder = {
 
   // Markdown格式
   encodeSkillsToMarkdownList,
+  encodeSkillsToList,
   encodeSkillsToMarkdownTable,
   encodeSkillsToOpenClawMD,
   encodeSkillsToCodexMD,
@@ -6965,6 +5918,10400 @@ if (typeof module !== 'undefined' && module.exports) {
 // Link global alias
 BundleBase = window.BundleBase;
 
+// ===== src/bundle/openclaw-bundle.js =====
+/**
+ * UAT OpenClaw Bundle 管理器 - OpenClaw Bundle Manager
+ * 专门处理 OpenClaw Agent 的多文件配置包导入导出
+ *
+ * OpenClaw 配置结构：
+ * ~/.openclaw/
+ * ├── openclaw.json       # 全局JSON5主配置（网关+模型+多Agent）
+ * ├── .env                # 密钥隔离
+ * ├── workspace/          # 7大Markdown灵魂文件
+ * │   ├── AGENTS.md       # 启动中枢（最高优先级）
+ * │   ├── SOUL.md         # 行为内核（系统Prompt）
+ * │   ├── IDENTITY.md     # 身份定义
+ * │   ├── USER.md         # 用户画像
+ * │   ├── TOOLS.md        # 工具清单
+ * │   ├── MEMORY.md       # 长期记忆
+ * │   └── HEARTBEAT.md    # 定时任务
+ * ├── agents/             # 多Agent实例
+ * │   └── main/           # 默认主Agent
+ * └── logs/               # 运行日志
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// OpenClaw Bundle 创建（导出）
+// ============================================
+
+/**
+ * 创建 OpenClaw Bundle ZIP 包
+ * @param {Object} schema - UAT-Schema v2.0
+ * @param {Object} options - 可选配置
+ * @returns {Promise<Blob>} ZIP 文件
+ */
+async function createOpenClawBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json - Bundle 清单
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "OpenClaw-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      config: "openclaw.json",
+      workspace: "workspace/",
+      workspaceFiles: [
+        "AGENTS.md",
+        "SOUL.md",
+        "IDENTITY.md",
+        "USER.md",
+        "TOOLS.md",
+        "MEMORY.md",
+        "HEARTBEAT.md"
+      ],
+      envTemplate: ".env.example",
+      agentsDir: "agents/main/"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - OpenClaw Bundle"
+    },
+    notes: {
+      knowledgeBase: "知识库引用已保留，需在 OpenClaw 中重新配置",
+      secrets: "密钥已移除，请填写 .env 文件",
+      dailyMemory: "日记忆文件运行时自动生成，不在导出包中"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. openclaw.json - 全局主配置
+  const configJSON = encodeOpenClawConfigJSON(schema);
+  zip.file("openclaw.json", configJSON);
+
+  // 3. .env.example - 密钥模板
+  const envExample = encodeOpenClawEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 4. workspace/ 目录 - 7大Markdown灵魂文件
+  const workspaceFolder = zip.folder("workspace");
+
+  workspaceFolder.file("AGENTS.md", encodeOpenClawAgentsMD(schema));
+  workspaceFolder.file("SOUL.md", encodeOpenClawSoulMD(schema));
+  workspaceFolder.file("IDENTITY.md", encodeOpenClawIdentityMD(schema));
+  workspaceFolder.file("USER.md", encodeOpenClawUserMD(schema));
+  workspaceFolder.file("TOOLS.md", encodeOpenClawToolsMD(schema));
+  workspaceFolder.file("MEMORY.md", encodeOpenClawMemoryMD(schema));
+  workspaceFolder.file("SKILLS.md", encodeOpenClawSkillsMD(schema));
+  workspaceFolder.file("HEARTBEAT.md", encodeOpenClawHeartbeatMD(schema));
+
+  // 5. agents/main/ 目录结构
+  const agentsFolder = zip.folder("agents");
+  const mainAgentFolder = agentsFolder.folder("main");
+
+  // agents/main/agent/ 配置目录（可选）
+  const agentConfigFolder = mainAgentFolder.folder("agent");
+  agentConfigFolder.file("README.md", "# Agent Private Config\n\nThis directory contains agent-specific configurations.\n");
+
+  // agents/main/memory/ 日记忆目录
+  const memoryFolder = mainAgentFolder.folder("memory");
+  memoryFolder.file("README.md", "# Daily Memory Directory\n\nDaily memory files (YYYY-MM-DD.md) are generated at runtime.\n\nThis directory is empty in the export bundle.\n");
+
+  // 6. README.md - 使用说明
+  const readmeMD = encodeOpenClawReadme(schema);
+  zip.file("README.md", readmeMD);
+
+  // 7. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// openclaw.json 编码器（JSON5格式，带注释）
+// ============================================
+
+function encodeOpenClawConfigJSON(schema) {
+  const provider = extractOpenClawProvider(schema.modelConfig.model);
+  const modelName = schema.modelConfig.model;
+
+  // JSON5 格式（支持注释）
+  const config = `// OpenClaw Global Configuration
+// Generated by UAT Converter
+// JSON5 format - supports comments
+
+{
+  "agents": {
+    "defaults": {
+      // Model configuration with fallback chain
+      "model": {
+        "primary": "${provider}/${modelName}",
+        "fallbacks": ["openai/gpt-4o"]
+      },
+
+      // Default workspace directory
+      "workspace": "~/.openclaw/workspace",
+
+      // Sandbox security mode
+      "sandbox": {
+        "mode": "non-main"
+      },
+
+      // Memory search configuration
+      "memorySearch": {
+        "enabled": true,
+        "provider": "local",
+        "hybrid": {
+          "enabled": true,
+          "bm25Weight": 0.3,
+          "vectorWeight": 0.7
+        }
+      },
+
+      // Heartbeat automation
+      "heartbeat": {
+        "every": "1h"
+      },
+
+      // Context compaction
+      "compaction": {
+        "enabled": true,
+        "threshold": 80000
+      }
+    }
+  },
+
+  // Gateway WebSocket configuration
+  "gateway": {
+    "port": 18789,
+    "bind": "127.0.0.1",
+    "auth": {
+      "mode": "token"
+    },
+    "cors": {
+      "enabled": true,
+      "origins": ["*"]
+    }
+  },
+
+  // Skills configuration
+  "skills": {
+    "shell": {
+      "enabled": true,
+      "timeout": 30000
+    },
+    "filesystem": {
+      "enabled": true,
+      "sandbox": true
+    },
+    "browser": {
+      "enabled": ${schema.tools.apiEndpoints?.length > 0 ? 'true' : 'false'}
+    },
+    "search": {
+      "enabled": false
+    }
+  },
+
+  // Message channels (Discord/Slack/etc)
+  "channels": {}
+}`;
+
+  return config;
+}
+
+function extractOpenClawProvider(modelName) {
+  if (!modelName) return 'openai';
+  const lower = modelName.toLowerCase();
+
+  if (lower.includes('gpt') || lower.includes('o1') || lower.includes('o3')) return 'openai';
+  if (lower.includes('claude')) return 'anthropic';
+  if (lower.includes('gemini')) return 'google';
+  if (lower.includes('deepseek')) return 'deepseek';
+  if (lower.includes('llama') || lower.includes('mistral')) return 'openrouter';
+  if (lower.includes('qwen')) return 'alibaba';
+  if (lower.includes('ollama') || lower.includes('local')) return 'ollama';
+
+  return 'openai';
+}
+
+function getOpenClawBaseUrl(provider) {
+  const urls = {
+    'openai': 'https://api.openai.com/v1',
+    'anthropic': 'https://api.anthropic.com',
+    'google': 'https://generativelanguage.googleapis.com',
+    'deepseek': 'https://api.deepseek.com',
+    'openrouter': 'https://openrouter.ai/api/v1',
+    'alibaba': 'https://dashscope.aliyuncs.com/api/v1',
+    'ollama': 'http://localhost:11434'
+  };
+  return urls[provider] || urls['openai'];
+}
+
+// ============================================
+// AGENTS.md 编码器（启动中枢）
+// ============================================
+
+function encodeOpenClawAgentsMD(schema) {
+  const sections = [];
+
+  sections.push('# AGENTS.md - OpenClaw Agent Startup Hub');
+  sections.push('');
+  sections.push('> This file defines the loading sequence, global rules, and workflow for the Agent.');
+  sections.push('> It is loaded first and has the highest priority in the prompt construction.');
+  sections.push('');
+
+  // 加载顺序
+  sections.push('## Loading Sequence');
+  sections.push('');
+  sections.push('On each session start, the Agent loads files in this order:');
+  sections.push('');
+  sections.push('1. **SOUL.md** → Behavior kernel, core principles');
+  sections.push('2. **IDENTITY.md** → Identity definition, role, capabilities');
+  sections.push('3. **USER.md** → User preferences and interaction style');
+  sections.push('4. **Daily Memory** → `memory/YYYY-MM-DD.md` (runtime generated)');
+  sections.push('5. **MEMORY.md** → Long-term persistent memory');
+  sections.push('6. **TOOLS.md** → Available tools and permissions');
+  sections.push('');
+  sections.push('---');
+  sections.push('');
+
+  // 全局规则
+  sections.push('## Global Rules');
+  sections.push('');
+  sections.push('- Always follow constraints defined in SOUL.md');
+  sections.push('- Respect user preferences from USER.md');
+  sections.push('- Use only tools declared in TOOLS.md');
+  sections.push('- Maintain memory consistency across sessions');
+  sections.push('- Apply heartbeat tasks defined in HEARTBEAT.md');
+  sections.push('');
+
+  // 工作流定义
+  if (schema.workflow.steps?.length > 0) {
+    sections.push('## Workflow');
+    sections.push('');
+    sections.push('Default task processing flow:');
+    sections.push('');
+
+    for (let i = 0; i < schema.workflow.steps.length; i++) {
+      const step = schema.workflow.steps[i];
+      sections.push(`### Step ${i + 1}: ${step.name}`);
+      sections.push('');
+      sections.push(`- **Type**: ${step.type}`);
+      if (step.content) {
+        sections.push(`- **Content**: ${step.content.substring(0, 150)}${step.content.length > 150 ? '...' : ''}`);
+      }
+      if (step.conditions?.length > 0) {
+        sections.push('- **Conditions**:');
+        for (const cond of step.conditions) {
+          sections.push(`  - ${cond.variable} ${cond.operator} "${cond.value}" → ${cond.targetStepId}`);
+        }
+      }
+      sections.push('');
+    }
+  }
+
+  // Prompt 变量
+  if (schema.identity.promptVariables?.length > 0) {
+    sections.push('## Template Variables');
+    sections.push('');
+    sections.push('Available variables for prompt templates:');
+    sections.push('');
+    for (const v of schema.identity.promptVariables) {
+      sections.push(`- \`{{${v.name}}}\`: ${v.description || v.type} (default: ${v.default || 'empty'})`);
+    }
+    sections.push('');
+  }
+
+  // 元信息
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// SOUL.md 编码器（行为内核）
+// ============================================
+
+function encodeOpenClawSoulMD(schema) {
+  const sections = [];
+
+  sections.push('# SOUL.md - Agent Behavior Kernel');
+  sections.push('');
+  sections.push('> This file contains the core principles, constraints, and behavioral rules.');
+  sections.push('> It is the primary system prompt that defines how the Agent thinks and acts.');
+  sections.push('');
+
+  // 核心原则
+  sections.push('## Core Principles');
+  sections.push('');
+  sections.push(schema.identity.systemPrompt || 'You are a helpful AI assistant.');
+  sections.push('');
+
+  // 约束规则
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Constraints');
+    sections.push('');
+    sections.push('These are hard rules that must never be violated:');
+    sections.push('');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // 输出风格
+  if (schema.identity.responseStyle) {
+    sections.push('## Output Style');
+    sections.push('');
+    sections.push(schema.identity.responseStyle);
+    sections.push('');
+  }
+
+  // 输出规则
+  if (schema.identity.outputRules?.length > 0) {
+    sections.push('## Output Rules');
+    sections.push('');
+    for (const r of schema.identity.outputRules) {
+      sections.push(`- ${r}`);
+    }
+    sections.push('');
+  }
+
+  // 语言风格
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    sections.push(`- Primary: ${schema.identity.language}`);
+    sections.push('');
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// IDENTITY.md 编码器（身份定义）
+// ============================================
+
+function encodeOpenClawIdentityMD(schema) {
+  const sections = [];
+
+  sections.push('# IDENTITY.md - Agent Identity Definition');
+  sections.push('');
+  sections.push('> This file defines the Agent\'s name, role, and capability boundaries.');
+  sections.push('');
+
+  // 基础信息
+  sections.push('## Basic Info');
+  sections.push('');
+  sections.push(`- **Name**: ${schema.meta.name || 'OpenClaw Agent'}`);
+  sections.push(`- **Description**: ${schema.meta.description || 'AI Assistant'}`);
+  sections.push('');
+
+  // 角色定义
+  sections.push('## Role');
+  sections.push('');
+  sections.push(schema.identity.role || 'AI Assistant');
+  sections.push('');
+
+  // 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(schema.identity.personality);
+    sections.push('');
+  }
+
+  // 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push('');
+  }
+
+  // 能力边界
+  sections.push('## Capabilities');
+  sections.push('');
+  if (schema.tools.mcpServers?.length > 0 || schema.tools.functions?.length > 0) {
+    sections.push('### Tools Available');
+    sections.push('');
+    if (schema.tools.mcpServers?.length > 0) {
+      for (const mcp of schema.tools.mcpServers) {
+        sections.push(`- **${mcp.name}**: ${mcp.tools?.map(t => t.name).join(', ') || 'MCP Server'}`);
+      }
+    }
+    if (schema.tools.functions?.length > 0) {
+      for (const fn of schema.tools.functions) {
+        sections.push(`- **${fn.name}**: ${fn.description || 'Custom function'}`);
+      }
+    }
+    sections.push('');
+  }
+
+  if (schema.tools.apiEndpoints?.length > 0) {
+    sections.push('### API Endpoints');
+    sections.push('');
+    for (const api of schema.tools.apiEndpoints) {
+      sections.push(`- **${api.name}**: ${api.method} ${api.url}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// USER.md 编码器（用户画像）
+// ============================================
+
+function encodeOpenClawUserMD(schema) {
+  const sections = [];
+
+  sections.push('# USER.md - User Profile');
+  sections.push('');
+  sections.push('> This file contains user preferences and interaction settings.');
+  sections.push('> Customize this file to match your actual preferences.');
+  sections.push('');
+
+  // 用户偏好（导出时为模板）
+  sections.push('## Preferences');
+  sections.push('');
+  sections.push('- **Language**: Default (auto-detect from input)');
+  sections.push('- **Response Length**: Balanced');
+  sections.push('- **Detail Level**: Standard');
+  sections.push('');
+
+  sections.push('## Interaction Style');
+  sections.push('');
+  sections.push('- **Tone**: Professional and friendly');
+  sections.push('- **Format**: Markdown preferred');
+  sections.push('- **Code Style**: Clean and documented');
+  sections.push('');
+
+  // userPreference 在 memory 中，是字符串
+  const userPref = schema.memory.userPreference || '';
+  if (userPref.length > 0) {
+    sections.push('## Custom Preferences');
+    sections.push('');
+    sections.push(userPref);
+    sections.push('');
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push('*Note: Edit this file to personalize the Agent behavior.*');
+
+  return sections.join('\n');
+}
+
+// ============================================
+// TOOLS.md 编码器（工具清单）
+// ============================================
+
+function encodeOpenClawToolsMD(schema) {
+  const sections = [];
+
+  sections.push('# TOOLS.md - Available Tools');
+  sections.push('');
+  sections.push('> This file declares all tools the Agent can use.');
+  sections.push('> Tools must be enabled in openclaw.json skills configuration.');
+  sections.push('');
+
+  // 内置工具
+  sections.push('## Built-in Tools');
+  sections.push('');
+  sections.push('### Shell');
+  sections.push('- Execute shell commands');
+  sections.push('- Timeout: 30 seconds');
+  sections.push('- Sandbox: enabled');
+  sections.push('');
+
+  sections.push('### Filesystem');
+  sections.push('- Read/write files');
+  sections.push('- Sandbox mode: non-main');
+  sections.push('');
+
+  sections.push('### Browser');
+  sections.push('- Web navigation and scraping');
+  sections.push('- Enabled: ' + (schema.tools.apiEndpoints?.length > 0 ? 'yes' : 'no'));
+  sections.push('');
+
+  // MCP 工具 - 使用MCP编码器
+  const mcpEncoder = getUATMCPEncoder();
+  if (schema.tools.mcpServers?.length > 0) {
+    if (mcpEncoder) {
+      sections.push(mcpEncoder.encodeMCPToOpenClawToolsMD(schema.tools.mcpServers));
+    } else {
+      // 兼容旧版
+      sections.push('## MCP Servers');
+      sections.push('');
+      for (const mcp of schema.tools.mcpServers) {
+        sections.push(`### ${mcp.name}`);
+        sections.push('');
+        sections.push(`- **URL**: ${mcp.url || 'local'}`);
+        sections.push(`- **Transport**: ${mcp.config?.transport || 'stdio'}`);
+        if (mcp.config?.command) {
+          sections.push(`- **Command**: ${mcp.config.command}`);
+        }
+        if (mcp.tools?.length > 0) {
+          sections.push(`- **Tools**: ${mcp.tools.map(t => t.name).join(', ')}`);
+        }
+        sections.push('');
+      }
+    }
+  }
+
+  // API 工具
+  if (schema.tools.apiEndpoints?.length > 0) {
+    sections.push('## API Endpoints');
+    sections.push('');
+    for (const api of schema.tools.apiEndpoints) {
+      sections.push(`### ${api.name}`);
+      sections.push('');
+      sections.push(`- **Method**: ${api.method || 'GET'}`);
+      sections.push(`- **URL**: ${api.url}`);
+      if (api.auth?.type) {
+        sections.push(`- **Auth**: ${api.auth.type}`);
+      }
+      sections.push('');
+    }
+  }
+
+  // 自定义函数
+  if (schema.tools.functions?.length > 0) {
+    sections.push('## Custom Functions');
+    sections.push('');
+    for (const fn of schema.tools.functions) {
+      sections.push(`### ${fn.name}`);
+      sections.push('');
+      sections.push(`- **Description**: ${fn.description || fn.name}`);
+      if (fn.inputs?.length > 0) {
+        sections.push(`- **Inputs**: ${fn.inputs.map(i => i.name).join(', ')}`);
+      }
+      sections.push('');
+    }
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// MEMORY.md 编码器（长期记忆）
+// ============================================
+
+function encodeOpenClawMemoryMD(schema) {
+  const memoryEncoder = getUATMemoryEncoder();
+  const kbEncoder = getUATKnowledgeEncoder();
+  const sections = [];
+
+  sections.push('# MEMORY.md - Long-term Memory');
+  sections.push('');
+  sections.push('> This file stores persistent knowledge extracted from conversations.');
+  sections.push('> It is loaded during the startup sequence (step 5).');
+  sections.push('');
+
+  // 使用memoryEntries编码器（新格式）
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push('## Structured Memory');
+    sections.push('');
+    sections.push(memoryEncoder.encodeMemoryEntriesToTable(schema.memory.memoryEntries));
+    sections.push('');
+  }
+
+  // 知识库引用
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    sections.push('## Knowledge Base References');
+    sections.push('');
+    for (const kb of schema.memory.knowledgeBaseRef) {
+      sections.push(`- **${kb.name || kb}**: ${kb.id || kb}`);
+      sections.push(`  - Type: ${kb.type || 'external'}`);
+      sections.push(`  - Status: Reference preserved, needs reconfiguration`);
+      sections.push('');
+    }
+    sections.push('');
+    sections.push('*Note: Knowledge base content is not transferred. Re-configure in OpenClaw.*');
+    sections.push('');
+  }
+
+  // 知识库内容编码（如果有）
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Content');
+      sections.push('');
+      sections.push(kbEncoder.encodeKnowledgeToMarkdown(kbContent));
+      sections.push('');
+    }
+  }
+
+  // 长期记忆 (longTermMemory 支持字符串或数组格式)
+  const longTermMemory = schema.memory.longTermMemory || '';
+  const isLongTermMemoryArray = Array.isArray(longTermMemory);
+  const hasMemory = isLongTermMemoryArray ? longTermMemory.length > 0 : (longTermMemory && longTermMemory.length > 0);
+
+  if (hasMemory) {
+    sections.push('## Stored Memories');
+    sections.push('');
+
+    if (isLongTermMemoryArray) {
+      // 数组格式：结构化记忆
+      for (const mem of longTermMemory) {
+        const topic = mem.type || mem.id || 'Memory Entry';
+        const content = mem.content || '';
+        const importance = mem.importance || 0.8;
+
+        sections.push(`### ${topic}`);
+        sections.push('');
+        if (content) {
+          sections.push(content);
+        }
+        sections.push(`*Importance: ${importance}*`);
+        sections.push('');
+      }
+    } else {
+      // 字符串格式：兼容旧版
+      const memSections = longTermMemory.split(/\n### /);
+      for (let i = 0; i < memSections.length; i++) {
+        const section = memSections[i];
+        if (i === 0 && !section.startsWith('###')) {
+          if (section.trim()) {
+            sections.push(section.trim());
+            sections.push('');
+          }
+        } else {
+          const lines = section.split('\n');
+          const topic = lines[0].replace(/^### /, '').trim();
+          const content = lines.slice(1).join('\n').trim();
+          sections.push(`### ${topic || 'Memory Entry'}`);
+          sections.push('');
+          if (content) {
+            sections.push(content);
+            sections.push('');
+          }
+        }
+      }
+    }
+  }
+
+  // 空记忆说明
+  const hasKnowledgeBase = schema.memory.knowledgeBaseRef?.length > 0;
+  const hasMemoryEntries = schema.memory.memoryEntries?.length > 0;
+  if (!hasMemory && !hasKnowledgeBase && !hasMemoryEntries) {
+    sections.push('## Memory Status');
+    sections.push('');
+    sections.push('No long-term memories stored yet.');
+    sections.push('');
+    sections.push('Memories will be accumulated through conversations and persisted here.');
+    sections.push('');
+  }
+
+  // 会话记忆配置
+  sections.push('## Session Memory Configuration');
+  sections.push('');
+  sections.push(`- **Max Messages**: ${schema.memory.sessionMemory?.maxMessages || 100}`);
+  sections.push(`- **Storage**: SQLite (agents/main/sessions/)`);
+  sections.push('');
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// HEARTBEAT.md 编码器（定时任务）
+// ============================================
+
+function encodeOpenClawHeartbeatMD(schema) {
+  const sections = [];
+
+  sections.push('# HEARTBEAT.md - Automation Tasks');
+  sections.push('');
+  sections.push('> This file defines periodic tasks that run automatically.');
+  sections.push('> Configured in openclaw.json: heartbeat.every = "1h"');
+  sections.push('');
+
+  // 定时任务
+  sections.push('## Default Tasks');
+  sections.push('');
+  sections.push('### Memory Sync');
+  sections.push('- Run: Every 1 hour');
+  sections.push('- Action: Sync session memories to MEMORY.md');
+  sections.push('');
+
+  sections.push('### Context Compaction');
+  sections.push('- Run: When context exceeds threshold');
+  sections.push('- Action: Compress and summarize old messages');
+  sections.push('');
+
+  sections.push('### Self-check');
+  sections.push('- Run: Every 6 hours');
+  sections.push('- Action: Verify configuration integrity');
+  sections.push('');
+
+  // 自定义任务（如果有）
+  if (schema.workflow.cronTasks?.length > 0) {
+    sections.push('## Custom Tasks');
+    sections.push('');
+    for (const task of schema.workflow.cronTasks) {
+      sections.push(`### ${task.name}`);
+      sections.push('');
+      sections.push(`- **Schedule**: ${task.schedule}`);
+      sections.push(`- **Action**: ${task.action}`);
+      sections.push('');
+    }
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push('*Heartbeat tasks run in the background without user intervention.*');
+
+  return sections.join('\n');
+}
+
+// ============================================
+// SKILLS.md 编码器（技能清单）
+// ============================================
+
+function encodeOpenClawSkillsMD(schema) {
+  const skillsEncoder = getUATSkillsEncoder();
+
+  if (schema.skills && skillsEncoder) {
+    return skillsEncoder.encodeSkillsToOpenClawMD(schema.skills);
+  }
+
+  return '# Skills\n\nNo skills defined.\n';
+}
+
+// ============================================
+// .env.example 编码器（密钥模板）
+// ============================================
+
+function encodeOpenClawEnvExample(schema) {
+  const lines = [];
+  const provider = extractOpenClawProvider(schema.modelConfig.model);
+
+  lines.push('# OpenClaw Environment Variables Template');
+  lines.push('# Copy this file to .env and fill in your API keys');
+  lines.push('');
+  lines.push('# WARNING: Never commit .env to Git!');
+  lines.push('# Add .env to your .gitignore');
+  lines.push('');
+
+  // 主要模型密钥
+  lines.push('# Model Provider API Keys');
+  lines.push('');
+
+  if (provider === 'openai') {
+    lines.push('OPENAI_API_KEY=sk-your-openai-key-here');
+  } else if (provider === 'anthropic') {
+    lines.push('ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here');
+  } else if (provider === 'google') {
+    lines.push('GOOGLE_API_KEY=your-google-api-key-here');
+  } else if (provider === 'deepseek') {
+    lines.push('DEEPSEEK_API_KEY=sk-your-deepseek-key-here');
+  } else if (provider === 'openrouter') {
+    lines.push('OPENROUTER_API_KEY=sk-or-your-openrouter-key-here');
+  } else if (provider === 'ollama') {
+    lines.push('OLLAMA_HOST=http://localhost:11434');
+  } else {
+    lines.push(`${provider.toUpperCase()}_API_KEY=your-api-key-here`);
+  }
+  lines.push('');
+
+  // Fallback 模型密钥
+  lines.push('# Fallback Model Keys');
+  lines.push('OPENAI_API_KEY=sk-your-openai-key-here  # For fallback to gpt-4o');
+  lines.push('');
+
+  // MCP 工具密钥
+  if (schema.tools.mcpServers?.length > 0) {
+    lines.push('# MCP Server Credentials');
+    lines.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      if (mcp.config?.env) {
+        for (const [key, _] of Object.entries(mcp.config.env)) {
+          lines.push(`MCP_${mcp.name.toUpperCase()}_${key.toUpperCase()}=your-value-here`);
+        }
+      }
+    }
+    lines.push('');
+  }
+
+  // Gateway 配置
+  lines.push('# Gateway Configuration');
+  lines.push('');
+  lines.push('#OPENCLAW_GATEWAY_PORT=18789');
+  lines.push('#OPENCLAW_GATEWAY_TOKEN=your-secure-token-here');
+  lines.push('');
+
+  lines.push('# Optional Settings');
+  lines.push('');
+  lines.push('#OPENCLAW_LOG_LEVEL=INFO');
+  lines.push('#OPENCLAW_SANDBOX_MODE=non-main');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// ============================================
+// README.md 编码器（使用说明）
+// ============================================
+
+function encodeOpenClawReadme(schema) {
+  const sections = [];
+  const provider = extractOpenClawProvider(schema.modelConfig.model);
+
+  sections.push(`# ${schema.meta.name || 'OpenClaw Agent'} - Bundle`);
+  sections.push('');
+  sections.push('This bundle contains the complete configuration for an OpenClaw Agent.');
+  sections.push('');
+  sections.push('## Bundle Contents');
+  sections.push('');
+  sections.push('| File/Directory | Description |');
+  sections.push('|----------------|-------------|');
+  sections.push('| `openclaw.json` | Global configuration (gateway, model, skills) |');
+  sections.push('| `.env.example` | Environment variables template |');
+  sections.push('| `workspace/AGENTS.md` | Startup hub, loading sequence |');
+  sections.push('| `workspace/SOUL.md` | Behavior kernel, system prompt |');
+  sections.push('| `workspace/IDENTITY.md` | Identity definition |');
+  sections.push('| `workspace/USER.md` | User profile template |');
+  sections.push('| `workspace/TOOLS.md` | Available tools declaration |');
+  sections.push('| `workspace/MEMORY.md` | Long-term memory |');
+  sections.push('| `workspace/HEARTBEAT.md` | Periodic tasks |');
+  sections.push('| `agents/main/` | Default agent instance directory |');
+  sections.push('');
+
+  sections.push('## Installation');
+  sections.push('');
+  sections.push('1. Extract this ZIP to your OpenClaw directory:');
+  sections.push('   ```bash');
+  sections.push('   unzip openclaw_bundle.zip -d ~/.openclaw/');
+  sections.push('   ```');
+  sections.push('');
+  sections.push('2. Configure your API keys:');
+  sections.push('   ```bash');
+  sections.push('   cp ~/.openclaw/.env.example ~/.openclaw/.env');
+  sections.push('   # Edit .env and add your API keys');
+  sections.push('   ```');
+  sections.push('');
+  sections.push('3. Start OpenClaw:');
+  sections.push('   ```bash');
+  sections.push('   openclaw run');
+  sections.push('   ```');
+  sections.push('');
+
+  sections.push('## Configuration');
+  sections.push('');
+  sections.push(`- **Model**: ${provider}/${schema.modelConfig.model}`);
+  sections.push(`- **Gateway Port**: 18789`);
+  sections.push(`- **Sandbox Mode**: non-main`);
+  sections.push('');
+
+  if (schema.tools.mcpServers?.length) {
+    sections.push('### MCP Servers');
+    sections.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`- ${mcp.name}: ${mcp.url || 'local'}`);
+    }
+    sections.push('');
+  }
+
+  if (schema.tools.apiEndpoints?.length) {
+    sections.push('### API Tools');
+    sections.push('');
+    for (const api of schema.tools.apiEndpoints) {
+      sections.push(`- ${api.name}: ${api.method} ${api.url}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('## Architecture');
+  sections.push('');
+  sections.push('OpenClaw uses a 7-file Markdown architecture:');
+  sections.push('');
+  sections.push('1. **AGENTS.md** - Highest priority, defines loading sequence');
+  sections.push('2. **SOUL.md** - Core system prompt and constraints');
+  sections.push('3. **IDENTITY.md** - Agent name, role, capabilities');
+  sections.push('4. **USER.md** - User preferences');
+  sections.push('5. **MEMORY.md** - Long-term knowledge');
+  sections.push('6. **TOOLS.md** - Available tools');
+  sections.push('7. **HEARTBEAT.md** - Automation tasks');
+  sections.push('');
+
+  sections.push('## Notes');
+  sections.push('');
+  sections.push('- **Knowledge Base**: If this agent uses knowledge bases, configure them in OpenClaw separately.');
+  sections.push('- **Secrets**: Never commit `.env` file to Git.');
+  sections.push('- **Daily Memory**: Session memories are stored in `agents/main/memory/YYYY-MM-DD.md` at runtime.');
+  sections.push('');
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// OpenClaw Bundle 解析（导入）
+// ============================================
+
+/**
+ * 解析 OpenClaw Bundle ZIP 包
+ * @param {File|Blob} zipFile - ZIP 文件
+ * @returns {Promise<Object>} { schema, manifest, rawFiles }
+ */
+async function parseOpenClawBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  // 1. 解析 manifest
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  // 2. 解析 openclaw.json
+  const configFile = zip.file("openclaw.json");
+  let configJSON = '';
+  if (configFile) {
+    configJSON = await configFile.async("string");
+  }
+
+  // 3. 解析 workspace/ 目录
+  const workspaceFiles = {};
+  const workspaceDir = zip.folder("workspace");
+
+  for (const filename of ['AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'MEMORY.md', 'HEARTBEAT.md']) {
+    const file = workspaceDir.file(filename);
+    if (file) {
+      workspaceFiles[filename] = await file.async("string");
+    }
+  }
+
+  // 4. 构建 UAT-Schema
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'openclaw';
+  schema.meta.name = manifest.agent?.name || 'OpenClaw Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  // 从 openclaw.json 解析模型配置
+  parseOpenClawConfigJSON(configJSON, schema);
+
+  // 从各 MD 文件解析内容
+  parseOpenClawAgentsMD(workspaceFiles['AGENTS.md'] || '', schema);
+  parseOpenClawSoulMD(workspaceFiles['SOUL.md'] || '', schema);
+  parseOpenClawIdentityMD(workspaceFiles['IDENTITY.md'] || '', schema);
+  parseOpenClawToolsMD(workspaceFiles['TOOLS.md'] || '', schema);
+  parseOpenClawMemoryMD(workspaceFiles['MEMORY.md'] || '', schema);
+
+  // 补全默认值
+  UATCore.fillSchemaDefaultValues(schema);
+
+  // 原始文件内容（供调试）
+  const rawFiles = {
+    configJSON,
+    workspaceFiles
+  };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 解析 OpenClaw 配置文件（无 manifest，从提取的文件直接解析）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 实例（可选）
+ * @returns {Promise<Object>} schema
+ */
+async function parseOpenClawBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'openclaw';
+  schema.meta.name = 'OpenClaw Agent';
+
+  // 1. 解析 openclaw.json
+  const configJSON = findFileByPattern(extractedFiles, ['openclaw.json']);
+  if (configJSON) {
+    parseOpenClawConfigJSON(configJSON, schema);
+  }
+
+  // 2. 解析 workspace/ 目录下的各 MD 文件
+  const workspaceFiles = {};
+  for (const filename of ['AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'USER.md', 'TOOLS.md', 'MEMORY.md', 'HEARTBEAT.md']) {
+    const content = findFileByPattern(extractedFiles, [
+      'workspace/' + filename,
+      filename,
+      filename.toLowerCase()
+    ]);
+    if (content) {
+      workspaceFiles[filename] = content;
+    }
+  }
+
+  // 3. 从各 MD 文件解析内容
+  parseOpenClawAgentsMD(workspaceFiles['AGENTS.md'] || '', schema);
+  parseOpenClawSoulMD(workspaceFiles['SOUL.md'] || '', schema);
+  parseOpenClawIdentityMD(workspaceFiles['IDENTITY.md'] || '', schema);
+  parseOpenClawToolsMD(workspaceFiles['TOOLS.md'] || '', schema);
+  parseOpenClawMemoryMD(workspaceFiles['MEMORY.md'] || '', schema);
+
+  // 4. 从 AGENTS.md 提取 name
+  if (workspaceFiles['AGENTS.md']) {
+    const nameMatch = workspaceFiles['AGENTS.md'].match(/Name:\s*['"]?([^'":\n]+)['"]?/i);
+    if (nameMatch) schema.meta.name = nameMatch[1].trim();
+  }
+
+  // 补全默认值
+  UATCore.fillSchemaDefaultValues(schema);
+
+  return schema;
+}
+
+/**
+ * 从文件集合中查找匹配的文件内容
+ */
+function findFileByPattern(files, patterns) {
+  for (const pattern of patterns) {
+    // 精确匹配
+    for (const [path, content] of Object.entries(files)) {
+      if (path === pattern || path.endsWith('/' + pattern)) {
+        return content;
+      }
+    }
+    // 文件名匹配（pattern 可能带路径，只比较文件名）
+    const patternFileName = pattern.split('/').pop();
+    for (const [path, content] of Object.entries(files)) {
+      if (path.split('/').pop() === patternFileName) {
+        return content;
+      }
+    }
+    // 包含匹配
+    for (const [path, content] of Object.entries(files)) {
+      if (path.toLowerCase().includes(pattern.toLowerCase())) {
+        return content;
+      }
+    }
+  }
+  return null;
+}
+
+// ============================================
+// 解析辅助函数
+// ============================================
+
+function parseOpenClawConfigJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  // 移除注释（JSON5）
+  const cleanJSON = jsonText.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  try {
+    const config = JSON.parse(cleanJSON);
+
+    // 模型配置
+    const primaryModel = config.agents?.defaults?.model?.primary;
+    if (primaryModel) {
+      // 格式: provider/modelName
+      const parts = primaryModel.split('/');
+      if (parts.length === 2) {
+        schema.modelConfig.model = parts[1];
+      } else {
+        schema.modelConfig.model = primaryModel;
+      }
+    }
+
+    // 工具配置
+    const skills = config.skills;
+    if (skills?.shell?.enabled) {
+      schema.tools.permissionScope = 'extended';
+    }
+
+    // 记忆配置
+    const memorySearch = config.agents?.defaults?.memorySearch;
+    if (memorySearch?.enabled) {
+      schema.memory.vectorStorage.enabled = true;
+    }
+
+  } catch (e) {
+    console.warn('openclaw.json 解析警告:', e.message);
+  }
+}
+
+function parseOpenClawAgentsMD(mdText, schema) {
+  if (!mdText) return;
+
+  // 从标题提取名称（如 "# AGENT xxx · xxx" 或 "# xxx AGENTS"）
+  const titleMatch = mdText.match(/^#\s+(.*?AGENT.*|.*AGENTS.*)/im);
+  if (titleMatch) {
+    const title = titleMatch[1];
+    // 尝试从标题中提取名称
+    const nameMatch = title.match(/·\s*(.+)$/);
+    if (nameMatch && !schema.meta.name) {
+      schema.meta.name = nameMatch[1].trim();
+    }
+  }
+
+  // 通用策略：提取所有列表项作为 constraints 或 workflow steps
+  const lines = mdText.split('\n');
+  const constraintKeywords = ['铁律', '禁止', '严禁', '禁止', '必须', '红线', '不可违反', 'never', 'must not'];
+
+  for (const line of lines) {
+    // 匹配数字列表或符号列表
+    const listMatch = line.match(/^(\d+)\.\s+(.+)/) || line.match(/^[-*]\s+(.+)/);
+    if (!listMatch) continue;
+
+    const content = listMatch[2] ? listMatch[2].trim() : '';
+    if (!content || content.length < 5) continue;
+
+    // 根据关键词判断类型
+    const hasConstraintKeyword = constraintKeywords.some(kw => content.toLowerCase().includes(kw.toLowerCase()));
+
+    if (hasConstraintKeyword) {
+      // 作为 constraint
+      schema.identity.constraints.push(content);
+    } else if (content.includes('读取') || content.includes('加载') || content.includes('执行') || content.includes('流程')) {
+      // 作为 workflow step
+      const step = UATCore.createEmptyWorkflowStep();
+      step.stepId = `step_${schema.workflow.steps.length}`;
+      step.name = content.substring(0, 50);
+      step.type = 'prompt';
+      step.content = content;
+      schema.workflow.steps.push(step);
+    }
+  }
+}
+
+function parseOpenClawSoulMD(mdText, schema) {
+  if (!mdText) return;
+
+  // 从标题提取名称（如 "# DevEngineer - Soul" 或 "# xxx - Soul"）
+  const titleMatch = mdText.match(/^#\s+(.+?)(\s+-\s+Soul)?$/m);
+  if (titleMatch) {
+    const name = titleMatch[1].replace(/\s+-\s+Soul$/i, '').trim();
+    if (name && !schema.meta.name) {
+      schema.meta.name = name;
+    }
+  }
+
+  // 通用策略：提取所有非标题、非空行的文本作为 systemPrompt
+  // 排除第一行标题，收集有意义的内容
+  const lines = mdText.split('\n');
+  const contentLines = [];
+  let foundFirstContent = false;
+
+  for (const line of lines) {
+    // 排除标题行（# 开头）
+    if (line.match(/^#+\s/)) continue;
+    // 排除空行
+    if (!line.trim()) continue;
+    // 排除纯分隔线
+    if (line.match(/^[-=*]{3,}$/)) continue;
+
+    // 收集内容
+    contentLines.push(line);
+    foundFirstContent = true;
+  }
+
+  // 如果有内容，作为 systemPrompt
+  if (contentLines.length > 0) {
+    schema.identity.systemPrompt = contentLines.join('\n');
+  }
+
+  // 通用策略：从所有列表项提取 constraints
+  // 任何以 `-` 或数字开头的行，且包含约束性关键词
+  const constraintKeywords = ['不', '禁止', '严禁', '禁止', '必须', 'never', 'must', '禁止', '红线', '铁律', '约束', 'constraint'];
+  const outputKeywords = ['输出', '风格', 'style', '格式', 'format', '口头禅', '习惯'];
+
+  for (const line of lines) {
+    const isListItem = line.match(/^[-*]\s+/) || line.match(/^\d+\.\s+/);
+    if (!isListItem) continue;
+
+    const content = line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '').replace(/❌\s*/, '').trim();
+    if (!content) continue;
+
+    // 根据关键词判断是 constraint 还是 outputRule
+    const hasConstraintKeyword = constraintKeywords.some(kw => content.toLowerCase().includes(kw.toLowerCase()));
+    const hasOutputKeyword = outputKeywords.some(kw => content.toLowerCase().includes(kw.toLowerCase()));
+
+    if (hasConstraintKeyword) {
+      schema.identity.constraints.push(content);
+    } else if (hasOutputKeyword) {
+      schema.identity.outputRules.push(content);
+    }
+  }
+}
+
+function parseOpenClawIdentityMD(mdText, schema) {
+  if (!mdText) return;
+
+  // 通用策略：从列表项中提取 Name/Role/Description
+  // 匹配格式: - **Key:** Value 或 *Key*: Value 或 Key: Value
+  const lines = mdText.split('\n');
+
+  for (const line of lines) {
+    // 匹配 `- **Name:** xxx` 或 `- Name: xxx` 等格式
+    const keyValueMatch = line.match(/^[-*]\s+\*?\*?(\w+)\*?\*?:\s*`?([^`\n]+)`?/i);
+    if (keyValueMatch) {
+      const key = keyValueMatch[1].toLowerCase();
+      const value = keyValueMatch[2].trim();
+
+      switch (key) {
+        case 'name':
+          if (!schema.meta.name || schema.meta.name === 'OpenClaw Agent') {
+            schema.meta.name = value;
+          }
+          break;
+        case 'display name':
+        case 'description':
+          if (!schema.meta.description) {
+            schema.meta.description = value;
+          }
+          break;
+        case 'role':
+          schema.identity.role = value;
+          break;
+        case 'vibe':
+        case 'personality':
+          schema.identity.personality = value;
+          break;
+      }
+    }
+
+    // 也匹配 `*Name*: xxx` 格式（UAT导出格式）
+    const altMatch = line.match(/^\*(\w+)\*:\s*(.+)/i);
+    if (altMatch) {
+      const key = altMatch[1].toLowerCase();
+      const value = altMatch[2].trim();
+
+      if (key === 'name' && !schema.meta.name) {
+        schema.meta.name = value;
+      } else if (key === 'description' && !schema.meta.description) {
+        schema.meta.description = value;
+      }
+    }
+  }
+
+  // 如果名称未提取到，尝试从标题提取
+  if (!schema.meta.name || schema.meta.name === 'OpenClaw Agent') {
+    const titleMatch = mdText.match(/^#\s+(.+)/m);
+    if (titleMatch) {
+      schema.meta.name = titleMatch[1].replace(/IDENTITY/i, '').trim();
+    }
+  }
+}
+
+function parseOpenClawToolsMD(mdText, schema) {
+  if (!mdText) return;
+
+  // 通用策略：从表格提取 skills/tools
+  // 匹配任何表格行：| `xxx` | xxx | xxx |
+  const tableRows = mdText.matchAll(/\| `([^`]+)` \| ([^|]+) \|/g);
+  for (const match of tableRows) {
+    const name = match[1];
+    const desc = match[2].trim();
+
+    // 添加为 function
+    const fn = {
+      name: name,
+      description: desc,
+      code: ''
+    };
+    schema.tools.functions.push(fn);
+  }
+
+  // 通用策略：从标题+描述格式提取 MCP/API
+  // 匹配 ### Name 后面有 URL/Method 等描述
+  const sections = mdText.split(/\n### /);
+  for (let i = 1; i < sections.length; i++) {
+    const section = sections[i];
+    const lines = section.split('\n');
+
+    const name = lines[0].trim();
+    const urlMatch = section.match(/[-*]\s+\*?URL\*?:\s*(.+)/i);
+    const methodMatch = section.match(/[-*]\s+\*?Method\*?:\s*(\w+)/i);
+
+    if (urlMatch) {
+      // 可能是 MCP server 或 API endpoint
+      const url = urlMatch[1].trim();
+
+      if (methodMatch) {
+        // API endpoint
+        const api = UATCore.createEmptyAPIEndpoint();
+        api.id = name;
+        api.name = name;
+        api.method = methodMatch[1];
+        api.url = url;
+        schema.tools.apiEndpoints.push(api);
+      } else {
+        // MCP server
+        const mcp = UATCore.createEmptyMCPServer();
+        mcp.id = name;
+        mcp.name = name;
+        mcp.url = url;
+        schema.tools.mcpServers.push(mcp);
+      }
+    }
+  }
+}
+
+function parseOpenClawMemoryMD(mdText, schema) {
+  if (!mdText) return;
+
+  // 通用策略：提取数字配置
+  const numConfigs = mdText.matchAll(/[-*]\s+\*?(\w+)\*?:\s*(\d+)/gi);
+  for (const match of numConfigs) {
+    const key = match[1].toLowerCase();
+    const value = parseInt(match[2]);
+
+    if (key.includes('max') || key.includes('limit')) {
+      schema.memory.sessionMemory.maxMessages = value;
+    }
+  }
+
+  // 通用策略：从 ### 标题提取长期记忆条目
+  // 匹配任何 ### 标题后的内容作为记忆条目，合并为字符串
+  const sections = mdText.split(/\n### /);
+  const memoryEntries = [];
+  for (let i = 1; i < sections.length; i++) {
+    const section = sections[i];
+    const lines = section.split('\n');
+    const topic = lines[0].trim();
+    const content = lines.slice(1).join('\n').trim();
+
+    if (topic && content) {
+      memoryEntries.push(`### ${topic}\n${content}`);
+    }
+  }
+
+  // 如果有记忆条目，合并为 longTermMemory 字符串
+  if (memoryEntries.length > 0) {
+    schema.memory.longTermMemory = memoryEntries.join('\n\n');
+  } else if (mdText.length > 100) {
+    // 如果没有 ### 格式，将整个文档作为长期记忆
+    schema.memory.longTermMemory = mdText.replace(/^#\s+.*\n/, '').trim();
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 OpenClaw 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeOpenClawToFiles(schema) {
+  return {
+    'openclaw.json': encodeOpenClawConfigJSON(schema),
+    'workspace/AGENTS.md': encodeOpenClawAgentsMD(schema),
+    'workspace/SOUL.md': encodeOpenClawSoulMD(schema),
+    'workspace/IDENTITY.md': encodeOpenClawIdentityMD(schema),
+    'workspace/USER.md': encodeOpenClawUserMD(schema),
+    'workspace/TOOLS.md': encodeOpenClawToolsMD(schema),
+    'workspace/MEMORY.md': encodeOpenClawMemoryMD(schema),
+    'workspace/SKILLS.md': encodeOpenClawSkillsMD(schema),
+    'workspace/HEARTBEAT.md': encodeOpenClawHeartbeatMD(schema),
+    '.env.example': encodeOpenClawEnvExample(schema),
+    'README.md': encodeOpenClawReadme(schema)
+  };
+}
+
+window.OpenClawBundle = {
+  createOpenClawBundle,
+  parseOpenClawBundle,
+  parseOpenClawBundleFromFiles,
+  encodeOpenClawConfigJSON,
+  encodeOpenClawAgentsMD,
+  encodeOpenClawSoulMD,
+  encodeOpenClawIdentityMD,
+  encodeOpenClawUserMD,
+  encodeOpenClawToolsMD,
+  encodeOpenClawMemoryMD,
+  encodeOpenClawSkillsMD,
+  encodeOpenClawHeartbeatMD,
+  encodeOpenClawEnvExample,
+  encodeOpenClawReadme,
+  extractOpenClawProvider,
+  getOpenClawBaseUrl,
+  encodeOpenClawToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.OpenClawBundle;
+}
+// Link global alias
+OpenClawBundle = window.OpenClawBundle;
+
+// ===== src/bundle/hermes-bundle.js =====
+/**
+ * UAT Hermes Bundle 管理器 - Hermes Bundle Manager
+ * 专门处理 Hermes Agent 的多文件配置包导入导出
+ *
+ * Hermes 配置结构：
+ * ~/.hermes/
+ * ├── config.yaml    # 主配置
+ * ├── SOUL.md        # 人格本体
+ * ├── .env           # 密钥（导出时仅模板）
+ * ├── skills/        # 技能目录
+ * └── memories/      # 记忆库
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Hermes Bundle 创建（导出）
+// ============================================
+
+/**
+ * 创建 Hermes Bundle ZIP 包
+ * @param {Object} schema - UAT-Schema v2.0
+ * @param {Object} options - 可选配置
+ * @returns {Promise<Blob>} ZIP 文件
+ */
+async function createHermesBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json - Bundle 清单
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Hermes-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      config: "config.yaml",
+      soul: "SOUL.md",
+      envTemplate: ".env.example",
+      skillsDir: "skills/",
+      readme: "README.md"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Hermes Bundle"
+    },
+    notes: {
+      knowledgeBase: "知识库引用已保留，需在 Hermes 中重新配置",
+      secrets: "密钥已移除，请填写 .env 文件"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. config.yaml - Hermes 主配置
+  const configYAML = encodeHermesConfigYAML(schema);
+  zip.file("config.yaml", configYAML);
+
+  // 3. SOUL.md - 人格本体（独立文件）
+  const soulMD = encodeHermesSoulMD(schema);
+  zip.file("SOUL.md", soulMD);
+
+  // 4. .env.example - 密钥模板
+  const envExample = encodeHermesEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 5. skills/ 目录
+  const skillsFolder = zip.folder("skills");
+  const skillsContent = encodeHermesSkillsDir(schema);
+
+  // 技能注册表
+  skillsFolder.file("skill_registry.json", JSON.stringify(skillsContent.registry, null, 2));
+
+  // MCP 工具包装
+  if (schema.tools.mcpServers?.length > 0) {
+    skillsFolder.file("mcp_tools.py", skillsContent.mcpTools);
+  }
+
+  // API 工具包装
+  if (schema.tools.apiEndpoints?.length > 0) {
+    skillsFolder.file("api_tools.py", skillsContent.apiTools);
+  }
+
+  // 自定义函数
+  if (schema.tools.functions?.length > 0) {
+    skillsFolder.file("custom_functions.py", skillsContent.customFunctions);
+  }
+
+  // Skills YAML（新格式）
+  if (skillsContent.skillsYAML) {
+    skillsFolder.file("skills.yaml", skillsContent.skillsYAML);
+  }
+
+  // 6. memories/ 目录（空目录，可选）
+  const memoriesFolder = zip.folder("memories");
+  memoriesFolder.file("memory_export.json", JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    sessions: [],
+    userProfile: {}
+  }));
+
+  // 7. README.md - 使用说明
+  const readmeMD = encodeHermesReadme(schema);
+  zip.file("README.md", readmeMD);
+
+  // 8. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// Hermes config.yaml 编码器
+// ============================================
+
+function encodeHermesConfigYAML(schema) {
+  const lines = [];
+
+  // 版本头部
+  lines.push('# Hermes Agent Configuration');
+  lines.push('# Generated by UAT Converter');
+  lines.push('');
+  lines.push('hermes_version: "1.0"');
+  lines.push('');
+
+  // Identity 扩展字段
+  if (schema.identity.role || schema.identity.personality || schema.identity.language) {
+    lines.push('# Identity Configuration');
+    lines.push('identity:');
+    if (schema.identity.role) {
+      lines.push(`  role: "${schema.identity.role}"`);
+    }
+    if (schema.identity.personality) {
+      lines.push(`  personality: "${schema.identity.personality}"`);
+    }
+    if (schema.identity.language) {
+      lines.push(`  language: "${schema.identity.language}"`);
+    }
+    lines.push('');
+  }
+
+  // 模型配置
+  lines.push('# Model Configuration');
+  lines.push('model:');
+  const provider = extractHermesProvider(schema.modelConfig.model);
+  lines.push(`  provider: "${provider}"`);
+  lines.push(`  base_url: "${getHermesBaseUrl(provider)}"`);
+  lines.push(`  model_name: "${schema.modelConfig.model}"`);
+  lines.push(`  api_key_env: "${provider.toUpperCase()}_API_KEY"`);
+  lines.push(`  temperature: ${schema.modelConfig.temperature}`);
+  lines.push(`  max_tokens: ${schema.modelConfig.maxTokens}`);
+  if (schema.modelConfig.topP !== 1) {
+    lines.push(`  top_p: ${schema.modelConfig.topP}`);
+  }
+  if (schema.modelConfig.advanced?.frequencyPenalty) {
+    lines.push(`  frequency_penalty: ${schema.modelConfig.advanced.frequencyPenalty}`);
+  }
+  if (schema.modelConfig.advanced?.presencePenalty) {
+    lines.push(`  presence_penalty: ${schema.modelConfig.advanced.presencePenalty}`);
+  }
+  lines.push('');
+
+  // 工具配置
+  lines.push('# Tools Configuration');
+  lines.push('tools:');
+  lines.push('  enabled: true');
+  lines.push('  auto_approve_safe_tools: true');
+  lines.push('  toolsets:');
+  lines.push('    - filesystem');
+  lines.push('    - terminal');
+
+  if (schema.tools.mcpServers?.length > 0 || schema.tools.apiEndpoints?.length > 0) {
+    lines.push('  custom_skills_dir: "./skills/"');
+  }
+  lines.push('');
+
+  // 上下文配置
+  lines.push('# Context Configuration');
+  lines.push('context:');
+  lines.push('  compression_enabled: true');
+  lines.push('  max_history_tokens: 100000');
+  lines.push('  prompt_caching: true');
+  lines.push('  cache_ttl: 300  # 5 minutes');
+  lines.push('');
+
+  // 记忆配置
+  lines.push('# Memory Configuration');
+  lines.push('memory:');
+  lines.push('  enabled: true');
+  lines.push('  backend: sqlite');
+  lines.push('  max_history_messages: 100');
+  if (schema.memory.sessionMemory?.maxMessages) {
+    lines.push(`  session_limit: ${schema.memory.sessionMemory.maxMessages}`);
+  }
+
+  // 使用memoryEntries编码器（新格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    lines.push('');
+    lines.push('  # Structured Memory Entries');
+    lines.push(memoryEncoder.encodeMemoryEntriesToYAMLWithType(schema.memory.memoryEntries));
+  }
+
+  lines.push('');
+
+  // 知识库配置
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      lines.push('# Knowledge Base');
+      lines.push(kbEncoder.encodeKnowledgeToHermesYAML(kbContent));
+    }
+  }
+
+  // 安全配置
+  lines.push('# Safety & Compliance');
+  lines.push('safety:');
+  lines.push('  approval_required: false');
+  lines.push('  auto_approve_tools:');
+  lines.push('    - filesystem_read');
+  lines.push('    - terminal_safe');
+  if (schema.compliance?.piiHandling) {
+    lines.push('  pii_detection: true');
+    lines.push('  pii_masking: true');
+  }
+  lines.push('');
+
+  // 日志配置
+  lines.push('# Logging');
+  lines.push('logging:');
+  lines.push('  enabled: true');
+  lines.push('  level: INFO');
+  lines.push('  redact_secrets: true');
+  lines.push('  log_dir: "./logs/"');
+  lines.push('');
+
+  // 网关配置（可选）
+  if (schema.tools.mcpServers?.length > 0) {
+    lines.push('# Message Gateways');
+    lines.push('gateways:');
+    lines.push('  enabled: []');
+    lines.push('');
+  }
+
+  // 插件配置（可选）
+  lines.push('# Plugins');
+  lines.push('plugins:');
+  lines.push('  enabled: []');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function extractHermesProvider(modelName) {
+  if (!modelName) return 'openai';
+  const lower = modelName.toLowerCase();
+
+  if (lower.includes('gpt') || lower.includes('o1') || lower.includes('o3')) return 'openai';
+  if (lower.includes('claude')) return 'anthropic';
+  if (lower.includes('gemini')) return 'google';
+  if (lower.includes('llama') || lower.includes('mistral')) return 'openrouter';
+  if (lower.includes('deepseek')) return 'deepseek';
+  if (lower.includes('qwen')) return 'alibaba';
+
+  return 'openrouter';  // 默认使用 OpenRouter 作为通用适配
+}
+
+function getHermesBaseUrl(provider) {
+  const urls = {
+    'openai': 'https://api.openai.com/v1',
+    'anthropic': 'https://api.anthropic.com',
+    'google': 'https://generativelanguage.googleapis.com',
+    'openrouter': 'https://openrouter.ai/api/v1',
+    'deepseek': 'https://api.deepseek.com',
+    'alibaba': 'https://dashscope.aliyuncs.com/api/v1',
+    'ollama': 'http://localhost:11434'
+  };
+  return urls[provider] || urls['openrouter'];
+}
+
+// ============================================
+// Hermes SOUL.md 编码器
+// ============================================
+
+function encodeHermesSoulMD(schema) {
+  const sections = [];
+
+  // 标题
+  sections.push(`# ${schema.meta.name || 'Hermes Agent'}`);
+  sections.push('');
+  sections.push(`> ${schema.meta.description || 'AI Assistant powered by Hermes'}`);
+  sections.push('');
+
+  // 角色
+  sections.push('## Role');
+  sections.push('');
+  sections.push(schema.identity.role || 'AI Assistant');
+  sections.push('');
+
+  // 系统提示词（核心）
+  sections.push('## System Prompt');
+  sections.push('');
+  sections.push(schema.identity.systemPrompt || 'You are a helpful AI assistant.');
+  sections.push('');
+
+  // 性格/风格
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(schema.identity.personality);
+    sections.push('');
+  }
+
+  // 语言风格
+  if (schema.identity.responseStyle || schema.identity.language) {
+    sections.push('## Response Style');
+    sections.push('');
+    if (schema.identity.language) {
+      sections.push(`- Language: ${schema.identity.language}`);
+    }
+    if (schema.identity.responseStyle) {
+      sections.push(`- Style: ${schema.identity.responseStyle}`);
+    }
+    sections.push('');
+  }
+
+  // 约束规则
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Constraints');
+    sections.push('');
+    sections.push('Follow these rules in all interactions:');
+    sections.push('');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // 输出规则
+  if (schema.identity.outputRules?.length > 0) {
+    sections.push('## Output Rules');
+    sections.push('');
+    for (const r of schema.identity.outputRules) {
+      sections.push(`- ${r}`);
+    }
+    sections.push('');
+  }
+
+  // Prompt 变量（如果有）
+  if (schema.identity.promptVariables?.length > 0) {
+    sections.push('## Template Variables');
+    sections.push('');
+    sections.push('This agent supports the following template variables:');
+    sections.push('');
+    for (const v of schema.identity.promptVariables) {
+      sections.push(`- \`{{${v.name}}}\`: ${v.description || v.type} (default: ${v.default || 'empty'})`);
+    }
+    sections.push('');
+  }
+
+  // 工作流（如果有）
+  if (schema.workflow.steps?.length > 0) {
+    sections.push('## Workflow');
+    sections.push('');
+    sections.push('Default task processing flow:');
+    sections.push('');
+    for (let i = 0; i < schema.workflow.steps.length; i++) {
+      const step = schema.workflow.steps[i];
+      sections.push(`${i + 1}. **${step.name}** (${step.type})`);
+      if (step.content) {
+        sections.push(`   - ${step.content.substring(0, 100)}${step.content.length > 100 ? '...' : ''}`);
+      }
+    }
+    sections.push('');
+  }
+
+  // 创建时间
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Hermes .env.example 编码器
+// ============================================
+
+function encodeHermesEnvExample(schema) {
+  const lines = [];
+
+  lines.push('# Hermes Environment Variables Template');
+  lines.push('# Copy this file to .env and fill in your API keys');
+  lines.push('');
+  lines.push('# WARNING: Never commit .env to Git!');
+  lines.push('');
+
+  // 根据模型推断需要的 API Key
+  const provider = extractHermesProvider(schema.modelConfig.model);
+
+  lines.push('# Model Provider API Keys');
+  lines.push('');
+
+  if (provider === 'openai') {
+    lines.push('OPENAI_API_KEY=sk-your-openai-key-here');
+    lines.push('#OPENAI_ORG_ID=org-your-org-id');
+  } else if (provider === 'anthropic') {
+    lines.push('ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here');
+  } else if (provider === 'google') {
+    lines.push('GOOGLE_API_KEY=your-google-api-key-here');
+  } else if (provider === 'openrouter') {
+    lines.push('OPENROUTER_API_KEY=sk-or-your-openrouter-key-here');
+  } else if (provider === 'deepseek') {
+    lines.push('DEEPSEEK_API_KEY=sk-your-deepseek-key-here');
+  } else if (provider === 'ollama') {
+    lines.push('OLLAMA_HOST=http://localhost:11434');
+  } else {
+    lines.push(`${provider.toUpperCase()}_API_KEY=your-api-key-here`);
+  }
+  lines.push('');
+
+  // MCP 工具密钥（如果有）
+  if (schema.tools.mcpServers?.length > 0) {
+    lines.push('# MCP Server Credentials');
+    lines.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      if (mcp.config?.env) {
+        for (const [key, _] of Object.entries(mcp.config.env)) {
+          lines.push(`MCP_${mcp.name.toUpperCase()}_${key.toUpperCase}=your-value-here`);
+        }
+      }
+    }
+    lines.push('');
+  }
+
+  // 其他可选配置
+  lines.push('# Optional Settings');
+  lines.push('');
+  lines.push('#HERMES_LOG_LEVEL=INFO');
+  lines.push('#HERMES_APPROVAL_MODE=auto');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// ============================================
+// Hermes skills/ 目录编码器
+// ============================================
+
+function encodeHermesSkillsDir(schema) {
+  const skillsEncoder = getUATSkillsEncoder();
+  const result = {
+    registry: { skills: [] },
+    mcpTools: '',
+    apiTools: '',
+    customFunctions: '',
+    skillsYAML: ''
+  };
+
+  // 使用skillsLayer编码器（新格式）
+  if (schema.skills && skillsEncoder) {
+    result.skillsYAML = skillsEncoder.encodeSkillsToHermesYAML(schema.skills);
+  }
+
+  // 技能注册表
+  if (schema.tools.mcpServers?.length > 0) {
+    for (const mcp of schema.tools.mcpServers) {
+      result.registry.skills.push({
+        name: mcp.name,
+        type: 'mcp',
+        description: mcp.tools?.map(t => t.name).join(', ') || 'MCP Server',
+        file: 'mcp_tools.py',
+        enabled: mcp.enabled !== false,
+        config: {
+          url: mcp.url || '',
+          transport: mcp.config?.transport || 'stdio',
+          command: mcp.config?.command || '',
+          args: mcp.config?.args || []
+        }
+      });
+    }
+  }
+
+  if (schema.tools.apiEndpoints?.length > 0) {
+    for (const api of schema.tools.apiEndpoints) {
+      result.registry.skills.push({
+        name: api.name,
+        type: 'http',
+        description: api.name,
+        file: 'api_tools.py',
+        enabled: true,
+        config: {
+          method: api.method || 'GET',
+          url: api.url || '',
+          headers: api.headers || {},
+          authType: api.auth?.type || 'none'
+        }
+      });
+    }
+  }
+
+  if (schema.tools.functions?.length > 0) {
+    for (const fn of schema.tools.functions) {
+      result.registry.skills.push({
+        name: fn.name,
+        type: 'function',
+        description: fn.description || fn.name,
+        file: 'custom_functions.py',
+        enabled: true,
+        inputs: fn.inputs || [],
+        outputs: fn.outputs || []
+      });
+    }
+  }
+
+  // MCP 工具 Python 代码
+  result.mcpTools = generateMCPToolsPy(schema);
+
+  // API 工具 Python 代码
+  result.apiTools = generateAPIToolsPy(schema);
+
+  // 自定义函数 Python 代码
+  result.customFunctions = generateCustomFunctionsPy(schema);
+
+  return result;
+}
+
+function generateMCPToolsPy(schema) {
+  const lines = [];
+
+  lines.push('"""');
+  lines.push('Hermes MCP Tools Wrapper');
+  lines.push('Generated by UAT Converter');
+  lines.push('"""');
+  lines.push('');
+  lines.push('from typing import Dict, Any, Optional');
+  lines.push('import asyncio');
+  lines.push('');
+
+  if (!schema.tools.mcpServers?.length) {
+    lines.push('# No MCP servers defined');
+    lines.push('MCP_TOOLS = {}');
+    return lines.join('\n');
+  }
+
+  lines.push('# MCP Server Registry');
+  lines.push('MCP_SERVERS = {');
+
+  for (const mcp of schema.tools.mcpServers) {
+    lines.push(`    "${mcp.name}": {`);
+    lines.push(`        "url": "${mcp.url || ''}",`);
+    lines.push(`        "transport": "${mcp.config?.transport || 'stdio'}",`);
+    if (mcp.config?.command) {
+      lines.push(`        "command": "${mcp.config.command}",`);
+    }
+    if (mcp.config?.args?.length) {
+      lines.push(`        "args": ${JSON.stringify(mcp.config.args)},`);
+    }
+    lines.push(`        "enabled": ${mcp.enabled !== false}`);
+    lines.push(`    },`);
+  }
+
+  lines.push('}');
+  lines.push('');
+  lines.push('');
+  lines.push('# Tool definitions for Hermes');
+  lines.push('def get_mcp_tools():');
+  lines.push('    """Return MCP tool definitions for Hermes agent"""');
+  lines.push('    tools = []');
+  lines.push('    for name, config in MCP_SERVERS.items():');
+  lines.push('        if config.get("enabled"):');
+  lines.push('            tools.append({');
+  lines.push('                "name": name,');
+  lines.push('                "type": "mcp_server",');
+  lines.push('                "config": config');
+  lines.push('            })');
+  lines.push('    return tools');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function generateAPIToolsPy(schema) {
+  const lines = [];
+
+  lines.push('"""');
+  lines.push('Hermes API Tools Wrapper');
+  lines.push('Generated by UAT Converter');
+  lines.push('"""');
+  lines.push('');
+  lines.push('import requests');
+  lines.push('from typing import Dict, Any, Optional');
+  lines.push('');
+
+  if (!schema.tools.apiEndpoints?.length) {
+    lines.push('# No API endpoints defined');
+    lines.push('API_TOOLS = {}');
+    return lines.join('\n');
+  }
+
+  lines.push('# API Endpoint Registry');
+  lines.push('API_ENDPOINTS = {');
+
+  for (const api of schema.tools.apiEndpoints) {
+    lines.push(`    "${api.name}": {`);
+    lines.push(`        "method": "${api.method || 'GET'}",`);
+    lines.push(`        "url": "${api.url || ''}",`);
+    if (Object.keys(api.headers || {}).length) {
+      lines.push(`        "headers": ${JSON.stringify(api.headers)},`);
+    }
+    lines.push(`        "auth_type": "${api.auth?.type || 'none'}"`);
+    lines.push(`    },`);
+  }
+
+  lines.push('}');
+  lines.push('');
+  lines.push('');
+  lines.push('# API Tool Functions');
+  lines.push('def call_api(name: str, params: Dict = None, data: Dict = None) -> Dict:');
+
+  for (const api of schema.tools.apiEndpoints) {
+    lines.push(`    """Call ${api.name} API"""`);
+  }
+
+  lines.push('    endpoint = API_ENDPOINTS.get(name)');
+  lines.push('    if not endpoint:');
+  lines.push('        raise ValueError(f"Unknown API: {name}")');
+  lines.push('');
+  lines.push('    response = requests.request(');
+  lines.push('        method=endpoint["method"],');
+  lines.push('        url=endpoint["url"],');
+  lines.push('        headers=endpoint.get("headers", {}),');
+  lines.push('        params=params,');
+  lines.push('        json=data');
+  lines.push('    )');
+  lines.push('    return response.json()');
+  lines.push('');
+  lines.push('');
+  lines.push('def get_api_tools():');
+  lines.push('    """Return API tool definitions for Hermes agent"""');
+  lines.push('    tools = []');
+  lines.push('    for name, config in API_ENDPOINTS.items():');
+  lines.push('        tools.append({');
+  lines.push('            "name": name,');
+  lines.push('            "type": "http_request",');
+  lines.push('            "config": config');
+  lines.push('        })');
+  lines.push('    return tools');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function generateCustomFunctionsPy(schema) {
+  const lines = [];
+
+  lines.push('"""');
+  lines.push('Hermes Custom Functions');
+  lines.push('Generated by UAT Converter');
+  lines.push('"""');
+  lines.push('');
+  lines.push('from typing import Dict, Any, List');
+  lines.push('');
+
+  if (!schema.tools.functions?.length) {
+    lines.push('# No custom functions defined');
+    lines.push('CUSTOM_FUNCTIONS = {}');
+    return lines.join('\n');
+  }
+
+  for (const fn of schema.tools.functions) {
+    lines.push(`def ${fn.name.replace(/[^a-zA-Z0-9_]/g, '_')}(**kwargs) -> Any:`);
+    lines.push(`    """${fn.description || fn.name}"""`);
+    if (fn.code) {
+      lines.push(fn.code);
+    } else {
+      lines.push('    # TODO: Implement function logic');
+      lines.push('    return kwargs');
+    }
+    lines.push('');
+  }
+
+  lines.push('# Function Registry');
+  lines.push('CUSTOM_FUNCTIONS = {');
+  for (const fn of schema.tools.functions) {
+    const fnName = fn.name.replace(/[^a-zA-Z0-9_]/g, '_');
+    lines.push(`    "${fn.name}": ${fnName},`);
+  }
+  lines.push('}');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// ============================================
+// Hermes README.md 编码器
+// ============================================
+
+function encodeHermesReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Hermes Agent'} - Bundle`);
+  sections.push('');
+  sections.push(`This bundle contains the complete configuration for a Hermes Agent.`);
+  sections.push('');
+
+  sections.push('## Bundle Contents');
+  sections.push('');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `config.yaml` | Main Hermes configuration (model, tools, safety) |');
+  sections.push('| `SOUL.md` | Agent personality and system prompt |');
+  sections.push('| `.env.example` | Environment variables template (copy to .env) |');
+  sections.push('| `skills/` | Custom skills and tools |');
+  sections.push('| `memories/` | Memory storage (empty by default) |');
+  sections.push('');
+
+  sections.push('## Installation');
+  sections.push('');
+  sections.push('1. Extract this ZIP to your Hermes directory:');
+  sections.push('   ```bash');
+  sections.push('   unzip hermes_bundle.zip -d ~/.hermes/');
+  sections.push('   ```');
+  sections.push('');
+  sections.push('2. Configure your API keys:');
+  sections.push('   ```bash');
+  sections.push('   cp ~/.hermes/.env.example ~/.hermes/.env');
+  sections.push('   # Edit .env and add your API keys');
+  sections.push('   ```');
+  sections.push('');
+  sections.push('3. Start Hermes:');
+  sections.push('   ```bash');
+  sections.push('   hermes run');
+  sections.push('   ```');
+  sections.push('');
+
+  sections.push('## Configuration');
+  sections.push('');
+  sections.push(`- **Model**: ${schema.modelConfig.model}`);
+  sections.push(`- **Temperature**: ${schema.modelConfig.temperature}`);
+  sections.push(`- **Max Tokens**: ${schema.modelConfig.maxTokens}`);
+  sections.push('');
+
+  if (schema.tools.mcpServers?.length) {
+    sections.push('### MCP Servers');
+    sections.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`- ${mcp.name}: ${mcp.url || 'local'}`);
+    }
+    sections.push('');
+  }
+
+  if (schema.tools.apiEndpoints?.length) {
+    sections.push('### API Tools');
+    sections.push('');
+    for (const api of schema.tools.apiEndpoints) {
+      sections.push(`- ${api.name}: ${api.method} ${api.url}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('## Notes');
+  sections.push('');
+  sections.push('- **Knowledge Base**: If this agent uses knowledge bases, configure them in Hermes separately.');
+  sections.push('- **Secrets**: Never commit `.env` file to Git.');
+  sections.push('- **Custom Skills**: Add Python files to `skills/` directory to extend capabilities.');
+  sections.push('');
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Hermes Bundle 解析（导入）
+// ============================================
+
+/**
+ * 解析 Hermes Bundle ZIP 包
+ * @param {File|Blob} zipFile - ZIP 文件
+ * @returns {Promise<Object>} { schema, manifest, rawFiles }
+ */
+async function parseHermesBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  // 1. 解析 manifest
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  // 2. 解析 config.yaml
+  const configFile = zip.file("config.yaml");
+  let configYAML = '';
+  if (configFile) {
+    configYAML = await configFile.async("string");
+  }
+
+  // 3. 解析 SOUL.md
+  const soulFile = zip.file("SOUL.md");
+  let soulMD = '';
+  if (soulFile) {
+    soulMD = await soulFile.async("string");
+  }
+
+  // 4. 解析 skills/ 目录
+  const skillRegistryFile = zip.file("skills/skill_registry.json");
+  let skillRegistry = { skills: [] };
+  if (skillRegistryFile) {
+    skillRegistry = JSON.parse(await skillRegistryFile.async("string"));
+  }
+
+  // 5. 构建 UAT-Schema
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'hermes';
+  schema.meta.name = manifest.agent?.name || 'Hermes Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  // 从 config.yaml 解析模型配置
+  parseHermesConfigYAML(configYAML, schema);
+
+  // 从 SOUL.md 解析人格
+  parseHermesSoulMD(soulMD, schema);
+
+  // 从 skill_registry.json 解析工具
+  parseHermesSkillRegistry(skillRegistry, schema);
+
+  // 补全默认值
+  UATCore.fillSchemaDefaultValues(schema);
+
+  // 原始文件内容（供调试）
+  const rawFiles = {
+    configYAML,
+    soulMD,
+    skillRegistry
+  };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 解析 Hermes 配置文件（无 manifest，从提取的文件直接解析）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 实例（可选）
+ * @returns {Promise<Object>} schema
+ */
+async function parseHermesBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'hermes';
+  schema.meta.name = 'Hermes Agent';
+
+  // 1. 解析 config.yaml
+  const configYAML = findFileByPattern(extractedFiles, ['config.yaml', 'config.yml']);
+  if (configYAML) {
+    parseHermesConfigYAML(configYAML, schema);
+    // 从 config.yaml 提取 name
+    const nameMatch = configYAML.match(/name:\s*['"]?([^'":\n]+)['"]?/i);
+    if (nameMatch) schema.meta.name = nameMatch[1].trim();
+  }
+
+  // 2. 解析 SOUL.md
+  const soulMD = findFileByPattern(extractedFiles, ['SOUL.md', 'soul.md']);
+  if (soulMD) {
+    parseHermesSoulMD(soulMD, schema);
+  }
+
+  // 3. 解析 skill_registry.json
+  const skillRegistryJSON = findFileByPattern(extractedFiles, ['skills/skill_registry.json', 'skill_registry.json']);
+  if (skillRegistryJSON) {
+    try {
+      const skillRegistry = JSON.parse(skillRegistryJSON);
+      parseHermesSkillRegistry(skillRegistry, schema);
+    } catch (e) {
+      console.warn('skill_registry.json parse error:', e.message);
+    }
+  }
+
+  // 4. 解析 memories/memory_export.json
+  const memoryJSON = findFileByPattern(extractedFiles, ['memories/memory_export.json', 'memory_export.json']);
+  if (memoryJSON) {
+    try {
+      const memoryData = JSON.parse(memoryJSON);
+      if (memoryData.longTermMemory) {
+        schema.memory.longTermMemory = memoryData.longTermMemory;
+      }
+    } catch (e) {
+      console.warn('memory_export.json parse error:', e.message);
+    }
+  }
+
+  // 补全默认值
+  UATCore.fillSchemaDefaultValues(schema);
+
+  return schema;
+}
+
+/**
+ * 从文件集合中查找匹配的文件内容
+ */
+function findFileByPattern(files, patterns) {
+  for (const pattern of patterns) {
+    // 精确匹配
+    for (const [path, content] of Object.entries(files)) {
+      if (path === pattern || path.endsWith('/' + pattern)) {
+        return content;
+      }
+    }
+    // 文件名匹配（pattern 可能带路径，只比较文件名）
+    const patternFileName = pattern.split('/').pop();
+    for (const [path, content] of Object.entries(files)) {
+      if (path.split('/').pop() === patternFileName) {
+        return content;
+      }
+    }
+    // 包含匹配
+    for (const [path, content] of Object.entries(files)) {
+      if (path.toLowerCase().includes(pattern.toLowerCase())) {
+        return content;
+      }
+    }
+  }
+  return null;
+}
+
+function parseHermesConfigYAML(yamlText, schema) {
+  if (!yamlText) return;
+
+  // 提取模型配置
+  schema.modelConfig.model = extractYAMLValue(yamlText, 'model_name') ||
+                             extractYAMLValue(yamlText, 'name', 'model:') || 'gpt-4';
+  schema.modelConfig.temperature = parseFloat(extractYAMLValue(yamlText, 'temperature')) || 0.7;
+  schema.modelConfig.maxTokens = parseInt(extractYAMLValue(yamlText, 'max_tokens')) || 4096;
+
+  const topP = parseFloat(extractYAMLValue(yamlText, 'top_p'));
+  if (topP) schema.modelConfig.topP = topP;
+
+  const freqPenalty = parseFloat(extractYAMLValue(yamlText, 'frequency_penalty'));
+  if (freqPenalty) schema.modelConfig.advanced.frequencyPenalty = freqPenalty;
+
+  const presPenalty = parseFloat(extractYAMLValue(yamlText, 'presence_penalty'));
+  if (presPenalty) schema.modelConfig.advanced.presencePenalty = presPenalty;
+
+  // 提取工具配置
+  const toolsEnabled = extractYAMLValue(yamlText, 'enabled', 'tools:');
+  if (toolsEnabled === 'true' || toolsEnabled === true) {
+    schema.tools.permissionScope = 'extended';
+  }
+
+  // 提取记忆配置
+  const memLimit = parseInt(extractYAMLValue(yamlText, 'session_limit'));
+  if (memLimit) {
+    schema.memory.sessionMemory.maxMessages = memLimit;
+  }
+}
+
+function parseHermesSoulMD(mdText, schema) {
+  if (!mdText) return;
+
+  // 提取系统提示词（## System Prompt 后的内容）
+  const promptMatch = mdText.match(/## System Prompt\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (promptMatch) {
+    schema.identity.systemPrompt = promptMatch[1].trim();
+  } else {
+    // 如果没有明确标记，取全文
+    schema.identity.systemPrompt = mdText;
+  }
+
+  // 提取角色
+  const roleMatch = mdText.match(/## Role\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (roleMatch) {
+    schema.identity.role = roleMatch[1].trim();
+  }
+
+  // 提取约束
+  const constraintsMatch = mdText.match(/## Constraints\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (constraintsMatch) {
+    const lines = constraintsMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.constraints.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+
+  // 提取输出规则
+  const rulesMatch = mdText.match(/## Output Rules\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (rulesMatch) {
+    const lines = rulesMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.outputRules.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+}
+
+function parseHermesSkillRegistry(registry, schema) {
+  if (!registry?.skills) return;
+
+  for (const skill of registry.skills) {
+    if (skill.type === 'mcp') {
+      const mcp = UATCore.createEmptyMCPServer();
+      mcp.id = skill.name;
+      mcp.name = skill.name;
+      mcp.url = skill.config?.url || '';
+      mcp.config = {
+        transport: skill.config?.transport || 'stdio',
+        command: skill.config?.command || '',
+        args: skill.config?.args || [],
+        env: {},
+        capabilities: []
+      };
+      mcp.enabled = skill.enabled !== false;
+      schema.tools.mcpServers.push(mcp);
+    }
+
+    if (skill.type === 'http') {
+      const api = UATCore.createEmptyAPIEndpoint();
+      api.id = skill.name;
+      api.name = skill.name;
+      api.method = skill.config?.method || 'GET';
+      api.url = skill.config?.url || '';
+      api.headers = skill.config?.headers || {};
+      api.auth.type = skill.config?.authType || 'none';
+      schema.tools.apiEndpoints.push(api);
+    }
+
+    if (skill.type === 'function') {
+      schema.tools.functions.push({
+        id: skill.name,
+        name: skill.name,
+        description: skill.description || skill.name,
+        code: '',
+        inputs: skill.inputs || [],
+        outputs: skill.outputs || []
+      });
+    }
+  }
+}
+
+// ============================================
+// 辅助函数
+// ============================================
+
+function extractYAMLValue(text, key, parentKey = null) {
+  if (parentKey) {
+    const parentMatch = text.match(new RegExp(`${parentKey}[\\s]*\\n([\\s\\S]*?)(?=\\n\\w+:|$)`));
+    if (parentMatch) {
+      return extractYAMLValueFromBlock(parentMatch[1], key);
+    }
+    return null;
+  }
+
+  const regex = new RegExp(`${key}:\\s*['"]?([^'":\\n]+)['"]?`, 'i');
+  const match = text.match(regex);
+  return match ? match[1].trim() : null;
+}
+
+function extractYAMLValueFromBlock(block, key) {
+  const regex = new RegExp(`(?:^|\\n)\\s*${key}:\\s*['"]?([^'":\\n]+)['"]?`, 'i');
+  const match = block.match(regex);
+  return match ? match[1].trim() : null;
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Hermes 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeHermesToFiles(schema) {
+  const skillsDir = encodeHermesSkillsDir(schema);
+  return {
+    'config.yaml': encodeHermesConfigYAML(schema),
+    'SOUL.md': encodeHermesSoulMD(schema),
+    'skills/skill_registry.json': JSON.stringify(skillsDir.registry, null, 2),
+    'skills/mcp_tools.py': skillsDir.mcpTools,
+    'skills/api_tools.py': skillsDir.apiTools,
+    'skills/custom_functions.py': skillsDir.customFunctions,
+    '.env.example': encodeHermesEnvExample(schema),
+    'README.md': encodeHermesReadme(schema)
+  };
+}
+
+window.HermesBundle = {
+  createHermesBundle,
+  parseHermesBundle,
+  parseHermesBundleFromFiles,
+  encodeHermesConfigYAML,
+  encodeHermesSoulMD,
+  encodeHermesEnvExample,
+  encodeHermesSkillsDir,
+  encodeHermesReadme,
+  extractHermesProvider,
+  getHermesBaseUrl,
+  encodeHermesToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.HermesBundle;
+}
+// Link global alias
+HermesBundle = window.HermesBundle;
+
+// ===== src/bundle/cursor-bundle.js =====
+/**
+ * UAT Cursor Bundle 管理器 - Cursor Bundle Manager
+ * 专门处理 Cursor IDE Agent 的多文件配置包导入导出
+ *
+ * Cursor 配置结构：
+ * 项目根目录/
+ * ├── .cursorrules              # 主规则文件（最高优先级）
+ * ├── .cursorignore             # 文件索引排除
+ * ├── .cursor/
+ * │   ├── rules/                # 多规则文件目录（按文件类型匹配）
+ * │   │   ├── general.md        # 通用规则
+ * │   │   ├── code-style.md     # 代码风格
+ * │   │   ├── frontend.md       # 前端规则（自动匹配 src/frontend/**）
+ * │   │   ├── backend.md        # 后端规则
+ * │   │   ├── tests.md          # 测试规则
+ * │   │   └── tools.md          # 工具说明
+ * │   ├── mcp.json              # MCP服务器配置
+ * │   └── settings.json         # Cursor项目设置
+ * │   └── context/              # 上下文文件（可选）
+ * │       └── files.json        # 始终包含的文件列表
+ * └── mcp-tools/                # MCP工具包装脚本（可选）
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Cursor Bundle 创建（导出）
+// ============================================
+
+/**
+ * 创建 Cursor Bundle ZIP 包
+ * @param {Object} schema - UAT-Schema v2.0
+ * @param {Object} options - 可选配置
+ * @returns {Promise<Blob>} ZIP 文件
+ */
+async function createCursorBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json - Bundle 清单
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Cursor-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainRules: ".cursorrules",
+      cursorDir: ".cursor/",
+      rulesDir: ".cursor/rules/",
+      mcpConfig: ".cursor/mcp.json",
+      settings: ".cursor/settings.json",
+      ignore: ".cursorignore",
+      envTemplate: ".env.example"
+    },
+    rulesFiles: [
+      "general.md",
+      "code-style.md",
+      "frontend.md",
+      "backend.md",
+      "tests.md",
+      "tools.md",
+      "workflow.md"
+    ],
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Cursor Bundle"
+    },
+    notes: {
+      mcpServers: "MCP工具配置已保留，需安装对应MCP服务器",
+      secrets: "密钥已移除，请填写 .env 文件",
+      contextFiles: "项目上下文文件请在Cursor中重新索引"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. .cursorrules - 主规则文件（最高优先级）
+  const cursorRules = encodeCursorRulesMain(schema);
+  zip.file(".cursorrules", cursorRules);
+
+  // 3. .cursorignore - 文件排除规则
+  const cursorIgnore = encodeCursorIgnore(schema);
+  zip.file(".cursorignore", cursorIgnore);
+
+  // 4. .cursor/ 目录
+  const cursorFolder = zip.folder(".cursor");
+
+  // 4.1 rules/ 多规则文件目录
+  const rulesFolder = cursorFolder.folder("rules");
+  rulesFolder.file("general.md", encodeCursorRulesGeneral(schema));
+  rulesFolder.file("code-style.md", encodeCursorRulesCodeStyle(schema));
+  rulesFolder.file("frontend.md", encodeCursorRulesFrontend(schema));
+  rulesFolder.file("backend.md", encodeCursorRulesBackend(schema));
+  rulesFolder.file("tests.md", encodeCursorRulesTests(schema));
+  rulesFolder.file("tools.md", encodeCursorRulesTools(schema));
+  rulesFolder.file("workflow.md", encodeCursorRulesWorkflow(schema));
+
+  // 4.2 mcp.json - MCP服务器配置
+  const mcpJSON = encodeCursorMCPJSON(schema);
+  cursorFolder.file("mcp.json", mcpJSON);
+
+  // 4.3 settings.json - Cursor项目设置
+  const settingsJSON = encodeCursorSettingsJSON(schema);
+  cursorFolder.file("settings.json", settingsJSON);
+
+  // 4.4 context/files.json - 始终包含的文件（可选）
+  const contextFolder = cursorFolder.folder("context");
+  const filesJSON = encodeCursorContextFiles(schema);
+  contextFolder.file("files.json", filesJSON);
+
+  // 5. mcp-tools/ 目录（如果有MCP工具）
+  if (schema.tools.mcpServers?.length > 0 || schema.tools.apiEndpoints?.length > 0) {
+    const mcpToolsFolder = zip.folder("mcp-tools");
+    mcpToolsFolder.file("mcp_wrapper.js", generateCursorMCPWrapper(schema));
+    mcpToolsFolder.file("api_tools.js", generateCursorAPITools(schema));
+    mcpToolsFolder.file("README.md", generateCursorMCPToolsReadme(schema));
+  }
+
+  // 6. .env.example - 密钥模板
+  const envExample = encodeCursorEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 7. README.md - 使用说明
+  const readmeMD = encodeCursorReadme(schema);
+  zip.file("README.md", readmeMD);
+
+  // 8. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// .cursorrules 主规则文件编码器
+// ============================================
+
+function encodeCursorRulesMain(schema) {
+  const sections = [];
+
+  sections.push('# Cursor Rules - Main Configuration');
+  sections.push('');
+  sections.push('> This file is loaded with highest priority for all Cursor AI interactions.');
+  sections.push('> Place this file in your project root directory.');
+  sections.push('');
+
+  // 项目信息
+  sections.push('## Project');
+  sections.push('');
+  sections.push(`- **Name**: ${schema.meta.name || 'Cursor Agent'}`);
+  sections.push(`- **Description**: ${schema.meta.description || 'AI Assistant'}`);
+  sections.push('');
+
+  // 核心行为规则（最高优先级）
+  sections.push('## Core Behavior');
+  sections.push('');
+
+  if (schema.identity.systemPrompt) {
+    sections.push(schema.identity.systemPrompt);
+    sections.push('');
+  }
+
+  // Role 定位
+  if (schema.identity.role) {
+    sections.push('## Role');
+    sections.push('');
+    sections.push(`You are acting as: ${schema.identity.role}`);
+    sections.push('');
+  }
+
+  // Personality 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(`Communication style: ${schema.identity.personality}`);
+    sections.push('');
+  }
+
+  // Language 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push(`- Respond in ${langDisplay} unless specified otherwise`);
+    sections.push('');
+  }
+
+  // 约束规则（最重要）
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Hard Constraints');
+    sections.push('');
+    sections.push('> These rules must NEVER be violated:');
+    sections.push('');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // 输出规则
+  if (schema.identity.outputRules?.length > 0) {
+    sections.push('## Output Format');
+    sections.push('');
+    for (const r of schema.identity.outputRules) {
+      sections.push(`- ${r}`);
+    }
+    sections.push('');
+  }
+
+  // 引用其他规则文件
+  sections.push('## Additional Rules');
+  sections.push('');
+  sections.push('> See `.cursor/rules/` directory for detailed rules by category:');
+  sections.push('- `general.md` - General guidelines');
+  sections.push('- `code-style.md` - Code formatting and style');
+  sections.push('- `frontend.md` - Frontend-specific rules (applies to `src/frontend/**`)');
+  sections.push('- `backend.md` - Backend-specific rules (applies to `src/backend/**`)');
+  sections.push('- `tests.md` - Testing rules (applies to `**/*.test.*`)');
+  sections.push('- `tools.md` - Tool usage guidelines');
+  sections.push('- `workflow.md` - Task workflow steps');
+  sections.push('');
+
+  // Memory encoding（使用memoryEntries）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToList(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push(kbEncoder.encodeKnowledgeToList(kbContent));
+    }
+  }
+
+  // 技能编码
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToList(schema.skills));
+  }
+
+  // MCP工具引用
+  if (schema.tools.mcpServers?.length > 0) {
+    sections.push('## MCP Tools Available');
+    sections.push('');
+    sections.push('> MCP servers configured in `.cursor/mcp.json`:');
+    sections.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`- **${mcp.name}**: ${mcp.tools?.map(t => t.name).join(', ') || 'MCP Server'}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// .cursorignore 编码器
+// ============================================
+
+function encodeCursorIgnore(schema) {
+  const lines = [];
+
+  lines.push('# Cursor Ignore File');
+  lines.push('# Similar to .gitignore - excludes files from Cursor AI context');
+  lines.push('');
+
+  // 标准排除项
+  lines.push('# Dependencies');
+  lines.push('node_modules/');
+  lines.push('package-lock.json');
+  lines.push('yarn.lock');
+  lines.push('pnpm-lock.yaml');
+  lines.push('');
+
+  lines.push('# Build outputs');
+  lines.push('dist/');
+  lines.push('build/');
+  lines.push('.next/');
+  lines.push('out/');
+  lines.push('');
+
+  lines.push('# Cache and temp');
+  lines.push('.cache/');
+  lines.push('.tmp/');
+  lines.push('*.log');
+  lines.push('');
+
+  lines.push('# Secrets (IMPORTANT)');
+  lines.push('.env');
+  lines.push('.env.local');
+  lines.push('.env.*.local');
+  lines.push('**/secrets/');
+  lines.push('**/credentials/');
+  lines.push('');
+
+  lines.push('# IDE and system');
+  lines.push('.vscode/');
+  lines.push('.idea/');
+  lines.push('.DS_Store');
+  lines.push('Thumbs.db');
+  lines.push('');
+
+  lines.push('# Generated files');
+  lines.push('*.min.js');
+  lines.push('*.min.css');
+  lines.push('coverage/');
+  lines.push('');
+
+  // 项目特定排除（如果有知识库）
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    lines.push('# Knowledge base (external)');
+    lines.push('# Knowledge base files are stored externally, not indexed');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ============================================
+// .cursor/rules/*.md 多规则文件编码器
+// ============================================
+
+function encodeCursorRulesGeneral(schema) {
+  const sections = [];
+
+  sections.push('# General Rules');
+  sections.push('');
+  sections.push('> Applies to: All files');
+  sections.push('> Priority: High');
+  sections.push('');
+
+  sections.push('## Guidelines');
+  sections.push('');
+
+  // 从系统提示词提取通用规则
+  if (schema.identity.systemPrompt) {
+    const sentences = schema.identity.systemPrompt.split(/[。\n]/).filter(s => s.trim());
+    for (const sentence of sentences) {
+      if (sentence.trim() && sentence.length < 200) {
+        sections.push(`- ${sentence.trim()}`);
+      }
+    }
+    sections.push('');
+  }
+
+  sections.push('## Best Practices');
+  sections.push('');
+  sections.push('- Write clean, readable code');
+  sections.push('- Document complex logic');
+  sections.push('- Follow project conventions');
+  sections.push('- Keep functions small and focused');
+  sections.push('');
+
+  sections.push('## Communication Style');
+  sections.push('');
+  if (schema.identity.responseStyle) {
+    sections.push(schema.identity.responseStyle);
+  } else {
+    sections.push('- Be clear and concise');
+    sections.push('- Explain reasoning when helpful');
+    sections.push('- Ask clarifying questions when needed');
+  }
+  sections.push('');
+
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    sections.push(`- Primary: ${schema.identity.language}`);
+    sections.push('');
+  }
+
+  return sections.join('\n');
+}
+
+function encodeCursorRulesCodeStyle(schema) {
+  const sections = [];
+
+  sections.push('# Code Style Rules');
+  sections.push('');
+  sections.push('> Applies to: All code files (`**/*.js`, `**/*.ts`, `**/*.py`, etc.)');
+  sections.push('> Priority: Medium');
+  sections.push('');
+
+  sections.push('## General Style');
+  sections.push('');
+  sections.push('- Use consistent naming conventions');
+  sections.push('- Prefer meaningful variable names');
+  sections.push('- Keep lines under 120 characters');
+  sections.push('- Use proper indentation');
+  sections.push('');
+
+  sections.push('## Comments');
+  sections.push('');
+  sections.push('- Document public APIs');
+  sections.push('- Explain non-obvious logic');
+  sections.push('- Avoid redundant comments');
+  sections.push('');
+
+  sections.push('## Functions');
+  sections.push('');
+  sections.push('- Single responsibility principle');
+  sections.push('- Pure functions preferred');
+  sections.push('- Early returns for clarity');
+  sections.push('- Limit parameters to 3-4');
+  sections.push('');
+
+  sections.push('## Error Handling');
+  sections.push('');
+  sections.push('- Handle errors gracefully');
+  sections.push('- Provide meaningful error messages');
+  sections.push('- Log errors appropriately');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+function encodeCursorRulesFrontend(schema) {
+  const sections = [];
+
+  sections.push('# Frontend Rules');
+  sections.push('');
+  sections.push('> Applies to: `src/frontend/**`, `src/components/**`, `src/pages/**`');
+  sections.push('> File pattern: `**/*.tsx`, `**/*.jsx`, `**/*.vue`, `**/*.css`');
+  sections.push('> Priority: Medium');
+  sections.push('');
+
+  sections.push('## Component Guidelines');
+  sections.push('');
+  sections.push('- Prefer functional components');
+  sections.push('- Use hooks for state management');
+  sections.push('- Keep components small and reusable');
+  sections.push('- Props should be typed');
+  sections.push('');
+
+  sections.push('## Styling');
+  sections.push('');
+  sections.push('- Use consistent styling approach');
+  sections.push('- Avoid inline styles for complex styling');
+  sections.push('- Use CSS variables for theme values');
+  sections.push('');
+
+  sections.push('## Performance');
+  sections.push('');
+  sections.push('- Avoid unnecessary re-renders');
+  sections.push('- Lazy load large components');
+  sections.push('- Optimize images');
+  sections.push('');
+
+  sections.push('## Accessibility');
+  sections.push('');
+  sections.push('- Use semantic HTML');
+  sections.push('- Include ARIA attributes when needed');
+  sections.push('- Ensure keyboard navigation');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+function encodeCursorRulesBackend(schema) {
+  const sections = [];
+
+  sections.push('# Backend Rules');
+  sections.push('');
+  sections.push('> Applies to: `src/backend/**`, `src/api/**`, `src/services/**`');
+  sections.push('> File pattern: `**/*.ts`, `**/*.js`, `**/*.py`');
+  sections.push('> Priority: Medium');
+  sections.push('');
+
+  sections.push('## API Design');
+  sections.push('');
+  sections.push('- RESTful conventions');
+  sections.push('- Consistent response format');
+  sections.push('- Proper HTTP status codes');
+  sections.push('- Validate all inputs');
+  sections.push('');
+
+  sections.push('## Security');
+  sections.push('');
+  sections.push('- Never trust user input');
+  sections.push('- Use parameterized queries');
+  sections.push('- Implement rate limiting');
+  sections.push('- Log security events');
+  sections.push('');
+
+  sections.push('## Database');
+  sections.push('');
+  sections.push('- Use transactions for critical operations');
+  sections.push('- Index frequently queried fields');
+  sections.push('- Avoid N+1 queries');
+  sections.push('');
+
+  sections.push('## Error Handling');
+  sections.push('');
+  sections.push('- Catch all errors');
+  sections.push('- Return meaningful error messages');
+  sections.push('- Don\'t expose internal details');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+function encodeCursorRulesTests(schema) {
+  const sections = [];
+
+  sections.push('# Testing Rules');
+  sections.push('');
+  sections.push('> Applies to: `**/*.test.*`, `**/*.spec.*`, `tests/**`, `__tests__/**`');
+  sections.push('> Priority: Medium');
+  sections.push('');
+
+  sections.push('## Test Structure');
+  sections.push('');
+  sections.push('- Clear test names describing what is tested');
+  sections.push('- One assertion per test (when possible)');
+  sections.push('- Use describe blocks for grouping');
+  sections.push('');
+
+  sections.push('## Coverage');
+  sections.push('');
+  sections.push('- Test edge cases');
+  sections.push('- Test error conditions');
+  sections.push('- Test happy paths');
+  sections.push('');
+
+  sections.push('## Mocking');
+  sections.push('');
+  sections.push('- Mock external dependencies');
+  sections.push('- Keep mocks simple');
+  sections.push('- Reset mocks between tests');
+  sections.push('');
+
+  sections.push('## Assertions');
+  sections.push('');
+  sections.push('- Use specific assertions');
+  sections.push('- Avoid deep equality when shallow works');
+  sections.push('- Assert on meaningful values');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+function encodeCursorRulesTools(schema) {
+  const sections = [];
+
+  sections.push('# Tool Usage Rules');
+  sections.push('');
+  sections.push('> Guidelines for using Cursor AI tools and MCP servers');
+  sections.push('> Priority: High');
+  sections.push('');
+
+  sections.push('## File Operations');
+  sections.push('');
+  sections.push('- Always read before modifying');
+  sections.push('- Preserve file structure');
+  sections.push('- Check for existing code');
+  sections.push('');
+
+  sections.push('## MCP Tools');
+  sections.push('');
+  if (schema.tools.mcpServers?.length > 0) {
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`### ${mcp.name}`);
+      sections.push('');
+      sections.push(`- **Type**: MCP Server`);
+      sections.push(`- **URL**: ${mcp.url || 'local'}`);
+      if (mcp.tools?.length > 0) {
+        sections.push(`- **Capabilities**: ${mcp.tools.map(t => t.name).join(', ')}`);
+      }
+      sections.push('');
+    }
+  } else {
+    sections.push('- MCP servers configured in `.cursor/mcp.json`');
+    sections.push('- Check MCP tools availability before using');
+    sections.push('');
+  }
+
+  sections.push('## API Tools');
+  sections.push('');
+  if (schema.tools.apiEndpoints?.length > 0) {
+    for (const api of schema.tools.apiEndpoints) {
+      sections.push(`- **${api.name}**: ${api.method} ${api.url}`);
+    }
+    sections.push('');
+  } else {
+    sections.push('- External APIs available per project configuration');
+    sections.push('');
+  }
+
+  sections.push('## Safety Rules');
+  sections.push('');
+  sections.push('- Never modify files without confirmation');
+  sections.push('- Validate all inputs to tools');
+  sections.push('- Log tool usage for debugging');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+function encodeCursorRulesWorkflow(schema) {
+  const sections = [];
+
+  sections.push('# Workflow Rules');
+  sections.push('');
+  sections.push('> Task processing workflow steps');
+  sections.push('> Priority: Medium');
+  sections.push('');
+
+  sections.push('## Task Flow');
+  sections.push('');
+  sections.push('1. **Understand**: Read and analyze the request');
+  sections.push('2. **Plan**: Identify files and changes needed');
+  sections.push('3. **Execute**: Make changes incrementally');
+  sections.push('4. **Verify**: Test and validate changes');
+  sections.push('5. **Document**: Update comments and docs');
+  sections.push('');
+
+  if (schema.workflow.steps?.length > 0) {
+    sections.push('## Custom Workflow Steps');
+    sections.push('');
+    for (let i = 0; i < schema.workflow.steps.length; i++) {
+      const step = schema.workflow.steps[i];
+      sections.push(`${i + 1}. **${step.name}** (${step.type})`);
+      if (step.content) {
+        sections.push(`   - ${step.content.substring(0, 100)}${step.content.length > 100 ? '...' : ''}`);
+      }
+    }
+    sections.push('');
+  }
+
+  sections.push('## Change Guidelines');
+  sections.push('');
+  sections.push('- Make minimal, focused changes');
+  sections.push('- Preserve existing functionality');
+  sections.push('- Add tests for new features');
+  sections.push('- Update documentation');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+// ============================================
+// .cursor/mcp.json 编码器
+// ============================================
+
+function encodeCursorMCPJSON(schema) {
+  const mcpConfig = {
+    mcpServers: {}
+  };
+
+  // MCP服务器配置
+  if (schema.tools.mcpServers?.length > 0) {
+    for (const mcp of schema.tools.mcpServers) {
+      const serverConfig = {};
+
+      if (mcp.config?.command) {
+        serverConfig.command = mcp.config.command;
+      } else if (mcp.url) {
+        // 远程MCP服务器使用特殊命令
+        serverConfig.command = 'npx';
+        serverConfig.args = ['-y', '@anthropic/mcp-client', mcp.url];
+      }
+
+      if (mcp.config?.args?.length) {
+        serverConfig.args = mcp.config.args;
+      }
+
+      if (mcp.config?.env) {
+        serverConfig.env = {};
+        for (const [key, value] of Object.entries(mcp.config.env)) {
+          // 密钥用环境变量引用
+          if (key.includes('KEY') || key.includes('TOKEN') || key.includes('SECRET')) {
+            serverConfig.env[key] = `$${key}`;
+          } else {
+            serverConfig.env[key] = value;
+          }
+        }
+      }
+
+      serverConfig.disabled = mcp.enabled === false;
+
+      mcpConfig.mcpServers[mcp.name] = serverConfig;
+    }
+  }
+
+  return JSON.stringify(mcpConfig, null, 2);
+}
+
+// ============================================
+// .cursor/settings.json 编码器
+// ============================================
+
+function encodeCursorSettingsJSON(schema) {
+  const settings = {
+    // Cursor AI 设置
+    "cursor.ai": {
+      "model": schema.modelConfig.model || "claude-sonnet-4",
+      "temperature": schema.modelConfig.temperature || 0.7,
+      "maxTokens": schema.modelConfig.maxTokens || 4096
+    },
+
+    // 上下文设置
+    "cursor.context": {
+      "includePattern": ["**/*.ts", "**/*.js", "**/*.py", "**/*.md"],
+      "excludePattern": ["node_modules/**", "dist/**", ".env*"]
+    },
+
+    // 规则设置
+    "cursor.rules": {
+      "projectRules": true,
+      "userRules": false,
+      "priorityOrder": [
+        ".cursorrules",
+        ".cursor/rules/*.md"
+      ]
+    },
+
+    // 编辑器设置
+    "editor": {
+      "formatOnSave": true,
+      "tabSize": 2,
+      "insertSpaces": true
+    }
+  };
+
+  return JSON.stringify(settings, null, 2);
+}
+
+// ============================================
+// .cursor/context/files.json 编码器
+// ============================================
+
+function encodeCursorContextFiles(schema) {
+  const contextFiles = {
+    description: "Files that should always be included in Cursor context",
+    files: [
+      "README.md",
+      ".cursorrules",
+      ".cursor/mcp.json",
+      "package.json"
+    ],
+    watchFiles: [
+      ".cursor/rules/*.md"
+    ],
+    notes: [
+      "These files are always indexed by Cursor AI",
+      "Add project-specific files as needed"
+    ]
+  };
+
+  return JSON.stringify(contextFiles, null, 2);
+}
+
+// ============================================
+// .env.example 编码器
+// ============================================
+
+function encodeCursorEnvExample(schema) {
+  const lines = [];
+
+  lines.push('# Cursor Environment Variables');
+  lines.push('# Copy to .env and fill in your API keys');
+  lines.push('# NEVER commit .env to Git!');
+  lines.push('');
+
+  // MCP服务器密钥
+  if (schema.tools.mcpServers?.length > 0) {
+    lines.push('# MCP Server Credentials');
+    lines.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      if (mcp.config?.env) {
+        for (const [key, _] of Object.entries(mcp.config.env)) {
+          if (key.includes('KEY') || key.includes('TOKEN') || key.includes('SECRET')) {
+            lines.push(`${key}=your-${mcp.name}-${key.toLowerCase()}-here`);
+          }
+        }
+      }
+    }
+    lines.push('');
+  }
+
+  // API密钥
+  if (schema.tools.apiEndpoints?.length > 0) {
+    lines.push('# API Credentials');
+    lines.push('');
+    for (const api of schema.tools.apiEndpoints) {
+      if (api.auth?.type === 'bearer') {
+        lines.push(`${api.name.toUpperCase()}_API_TOKEN=your-token-here`);
+      } else if (api.auth?.type === 'basic') {
+        lines.push(`${api.name.toUpperCase()}_USERNAME=your-username`);
+        lines.push(`${api.name.toUpperCase()}_PASSWORD=your-password`);
+      } else if (api.auth?.type === 'api_key') {
+        lines.push(`${api.name.toUpperCase()}_API_KEY=your-api-key`);
+      }
+    }
+    lines.push('');
+  }
+
+  // 默认AI模型密钥
+  lines.push('# AI Model API Keys (if using external models)');
+  lines.push('');
+  lines.push('#ANTHROPIC_API_KEY=sk-ant-your-key');
+  lines.push('#OPENAI_API_KEY=sk-your-key');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// ============================================
+// mcp-tools/ 脚本生成器
+// ============================================
+
+function generateCursorMCPWrapper(schema) {
+  const lines = [];
+
+  lines.push('/**');
+  lines.push(' * Cursor MCP Tools Wrapper');
+  lines.push(' * Generated by UAT Converter');
+  lines.push(' * ');
+  lines.push(' * This script provides a wrapper for MCP tools');
+  lines.push(' * when using Cursor\'s custom tool integration.');
+  lines.push(' */');
+  lines.push('');
+  lines.push('// MCP Server Registry');
+  lines.push('const MCP_SERVERS = {');
+
+  if (schema.tools.mcpServers?.length > 0) {
+    for (const mcp of schema.tools.mcpServers) {
+      lines.push(`  "${mcp.name}": {`);
+      lines.push(`    url: "${mcp.url || ''}",`);
+      lines.push(`    command: "${mcp.config?.command || ''}",`);
+      lines.push(`    enabled: ${mcp.enabled !== false}`);
+      lines.push(`  },`);
+    }
+  }
+
+  lines.push('};');
+  lines.push('');
+  lines.push('');
+  lines.push('// Get MCP tool definitions');
+  lines.push('function getMCPTools() {');
+  lines.push('  return Object.entries(MCP_SERVERS)');
+  lines.push('    .filter(([name, config]) => config.enabled)');
+  lines.push('    .map(([name, config]) => ({ name, ...config }));');
+  lines.push('}');
+  lines.push('');
+  lines.push('');
+  lines.push('module.exports = { MCP_SERVERS, getMCPTools };');
+
+  return lines.join('\n');
+}
+
+function generateCursorAPITools(schema) {
+  const lines = [];
+
+  lines.push('/**');
+  lines.push(' * Cursor API Tools');
+  lines.push(' * Generated by UAT Converter');
+  lines.push(' */');
+  lines.push('');
+
+  if (schema.tools.apiEndpoints?.length > 0) {
+    lines.push('const API_ENDPOINTS = {');
+    for (const api of schema.tools.apiEndpoints) {
+      lines.push(`  "${api.name}": {`);
+      lines.push(`    method: "${api.method || 'GET'}",`);
+      lines.push(`    url: "${api.url}",`);
+      lines.push(`    authType: "${api.auth?.type || 'none'}"`);
+      lines.push(`  },`);
+    }
+    lines.push('};');
+    lines.push('');
+    lines.push('');
+    lines.push('async function callAPI(name, params) {');
+    lines.push('  const endpoint = API_ENDPOINTS[name];');
+    lines.push('  if (!endpoint) throw new Error(`Unknown API: ${name}`);');
+    lines.push('');
+    lines.push('  const response = await fetch(endpoint.url, {');
+    lines.push('    method: endpoint.method,');
+    lines.push('    headers: {}, // Add auth headers as needed');
+    lines.push('    body: params ? JSON.stringify(params) : undefined');
+    lines.push('  });');
+    lines.push('');
+    lines.push('  return response.json();');
+    lines.push('}');
+    lines.push('');
+    lines.push('');
+    lines.push('module.exports = { API_ENDPOINTS, callAPI };');
+  } else {
+    lines.push('// No API endpoints configured');
+    lines.push('');
+    lines.push('module.exports = { API_ENDPOINTS: {} };');
+  }
+
+  return lines.join('\n');
+}
+
+function generateCursorMCPToolsReadme(schema) {
+  const sections = [];
+
+  sections.push('# MCP Tools Directory');
+  sections.push('');
+  sections.push('This directory contains wrapper scripts for MCP tools.');
+  sections.push('');
+
+  sections.push('## Files');
+  sections.push('');
+  sections.push('- `mcp_wrapper.js` - MCP server configuration wrapper');
+  sections.push('- `api_tools.js` - API endpoint wrappers');
+  sections.push('');
+
+  if (schema.tools.mcpServers?.length > 0) {
+    sections.push('## MCP Servers');
+    sections.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`- **${mcp.name}**: ${mcp.url || 'local'}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('## Usage');
+  sections.push('');
+  sections.push('1. Configure MCP servers in `.cursor/mcp.json`');
+  sections.push('2. Install required MCP packages: `npm install @anthropic/mcp-client`');
+  sections.push('3. Set environment variables in `.env`');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+// ============================================
+// README.md 编码器
+// ============================================
+
+function encodeCursorReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Cursor Agent'} - Bundle`);
+  sections.push('');
+  sections.push('This bundle contains the complete configuration for a Cursor AI Agent.');
+  sections.push('');
+
+  sections.push('## Bundle Contents');
+  sections.push('');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `.cursorrules` | Main rules file (highest priority) |');
+  sections.push('| `.cursorignore` | Files to exclude from AI context |');
+  sections.push('| `.cursor/rules/*.md` | Detailed rules by category |');
+  sections.push('| `.cursor/mcp.json` | MCP server configuration |');
+  sections.push('| `.cursor/settings.json` | Cursor project settings |');
+  sections.push('| `.cursor/context/files.json` | Always-indexed files |');
+  sections.push('| `mcp-tools/` | MCP wrapper scripts (if applicable) |');
+  sections.push('| `.env.example` | Environment variables template |');
+  sections.push('');
+
+  sections.push('## Installation');
+  sections.push('');
+  sections.push('1. Extract files to your project root:');
+  sections.push('   ```bash');
+  sections.push('   unzip cursor_bundle.zip');
+  sections.push('   ```');
+  sections.push('');
+  sections.push('2. Configure environment (if using MCP):');
+  sections.push('   ```bash');
+  sections.push('   cp .env.example .env');
+  sections.push('   # Edit .env with your credentials');
+  sections.push('   ```');
+  sections.push('');
+  sections.push('3. Open project in Cursor IDE');
+  sections.push('   - Rules will be automatically loaded');
+  sections.push('   - MCP servers will connect if configured');
+  sections.push('');
+
+  sections.push('## Rules Architecture');
+  sections.push('');
+  sections.push('Cursor uses a layered rules system:');
+  sections.push('');
+  sections.push('1. **`.cursorrules`** - Highest priority, applies globally');
+  sections.push('2. **`.cursor/rules/*.md`** - File-specific rules with pattern matching:');
+  sections.push('   - `general.md` → All files');
+  sections.push('   - `frontend.md` → `src/frontend/**`');
+  sections.push('   - `backend.md` → `src/backend/**`');
+  sections.push('   - `tests.md` → `**/*.test.*`');
+  sections.push('');
+
+  if (schema.tools.mcpServers?.length) {
+    sections.push('## MCP Servers');
+    sections.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`- ${mcp.name}: ${mcp.url || 'local'}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('## Notes');
+  sections.push('');
+  sections.push('- `.cursorignore` prevents files from being indexed');
+  sections.push('- MCP servers require installation in `.cursor/mcp.json`');
+  sections.push('- Never commit `.env` to version control');
+  sections.push('');
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Cursor Bundle 解析（导入）
+// ============================================
+
+/**
+ * 解析 Cursor Bundle ZIP 包
+ * @param {File|Blob} zipFile - ZIP 文件
+ * @returns {Promise<Object>} { schema, manifest, rawFiles }
+ */
+async function parseCursorBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  // 1. 解析 manifest
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  // 2. 解析 .cursorrules
+  const cursorRulesFile = zip.file(".cursorrules");
+  let cursorRules = '';
+  if (cursorRulesFile) {
+    cursorRules = await cursorRulesFile.async("string");
+  }
+
+  // 3. 解析 .cursor/rules/ 目录
+  const rulesDir = zip.folder(".cursor").folder("rules");
+  const rulesFiles = {};
+  for (const filename of ['general.md', 'code-style.md', 'frontend.md', 'backend.md', 'tests.md', 'tools.md', 'workflow.md']) {
+    const file = rulesDir.file(filename);
+    if (file) {
+      rulesFiles[filename] = await file.async("string");
+    }
+  }
+
+  // 4. 解析 mcp.json
+  const mcpFile = zip.folder(".cursor").file("mcp.json");
+  let mcpJSON = '';
+  if (mcpFile) {
+    mcpJSON = await mcpFile.async("string");
+  }
+
+  // 5. 构建 UAT-Schema
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'cursor';
+  schema.meta.name = manifest.agent?.name || 'Cursor Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  // 从 .cursorrules 解析
+  parseCursorRulesMain(cursorRules, schema);
+
+  // 从 rules/*.md 解析
+  parseCursorRulesFiles(rulesFiles, schema);
+
+  // 从 mcp.json 解析
+  parseCursorMCPJSON(mcpJSON, schema);
+
+  // 补全默认值
+  UATCore.fillSchemaDefaultValues(schema);
+
+  // 原始文件内容
+  const rawFiles = {
+    cursorRules,
+    rulesFiles,
+    mcpJSON
+  };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 从提取的文件直接解析 Cursor 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseCursorBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'cursor';
+
+  // 查找并解析 .cursorrules 主规则文件
+  const cursorRules = findFileByPattern(extractedFiles, ['.cursorrules', 'cursorrules']);
+  if (cursorRules) {
+    parseCursorRulesMain(cursorRules, schema);
+  }
+
+  // 查找并解析 .cursor/rules/*.md 规则文件
+  const rulesFiles = {};
+  const ruleNames = ['general.md', 'code-style.md', 'frontend.md', 'backend.md', 'tests.md', 'tools.md', 'workflow.md'];
+  for (const ruleName of ruleNames) {
+    const content = findFileByPattern(extractedFiles, [
+      '.cursor/rules/' + ruleName,
+      'cursor/rules/' + ruleName,
+      ruleName
+    ]);
+    if (content) {
+      rulesFiles[ruleName] = content;
+    }
+  }
+  parseCursorRulesFiles(rulesFiles, schema);
+
+  // 查找并解析 mcp.json
+  const mcpJSON = findFileByPattern(extractedFiles, [
+    '.cursor/mcp.json',
+    'cursor/mcp.json',
+    'mcp.json'
+  ]);
+  if (mcpJSON) {
+    parseCursorMCPJSON(mcpJSON, schema);
+  }
+
+  // 查找并解析 settings.json
+  const settingsJSON = findFileByPattern(extractedFiles, [
+    '.cursor/settings.json',
+    'cursor/settings.json',
+    'settings.json'
+  ]);
+  if (settingsJSON) {
+    try {
+      const settings = JSON.parse(settingsJSON);
+      if (settings['cursor.ai']?.model) {
+        schema.modelConfig.model = settings['cursor.ai'].model;
+      }
+      if (settings['cursor.ai']?.temperature) {
+        schema.modelConfig.temperature = settings['cursor.ai'].temperature;
+      }
+      if (settings['cursor.ai']?.maxTokens) {
+        schema.modelConfig.maxTokens = settings['cursor.ai'].maxTokens;
+      }
+    } catch (e) {
+      console.warn('Cursor settings JSON parse warning:', e.message);
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+// ============================================
+// 解析辅助函数
+// ============================================
+
+function parseCursorRulesMain(mdText, schema) {
+  if (!mdText) return;
+
+  // 提取项目名称
+  const nameMatch = mdText.match(/\*Name\*: (.+)/i);
+  if (nameMatch) {
+    schema.meta.name = nameMatch[1].trim();
+  }
+
+  // 提取核心行为
+  const coreMatch = mdText.match(/## Core Behavior\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (coreMatch) {
+    schema.identity.systemPrompt = coreMatch[1].trim();
+  }
+
+  // 提取约束
+  const constraintsMatch = mdText.match(/## Hard Constraints\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (constraintsMatch) {
+    const lines = constraintsMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.constraints.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+
+  // 提取输出规则
+  const outputMatch = mdText.match(/## Output Format\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (outputMatch) {
+    const lines = outputMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.outputRules.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+}
+
+function parseCursorRulesFiles(rulesFiles, schema) {
+  // 从 general.md 提取通用规则
+  if (rulesFiles['general.md']) {
+    const general = rulesFiles['general.md'];
+    const guidelinesMatch = general.match(/## Guidelines\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (guidelinesMatch) {
+      const existingPrompt = schema.identity.systemPrompt;
+      const guidelines = guidelinesMatch[1].split('\n')
+        .filter(l => l.trim().startsWith('-'))
+        .map(l => l.replace(/^-\s*/, '').trim())
+        .join('\n');
+
+      schema.identity.systemPrompt = existingPrompt + '\n\n' + guidelines;
+    }
+  }
+
+  // 从 workflow.md 提取工作流
+  if (rulesFiles['workflow.md']) {
+    const workflow = rulesFiles['workflow.md'];
+    const stepsMatch = workflow.match(/## Custom Workflow Steps\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (stepsMatch) {
+      const stepLines = stepsMatch[1].split('\n');
+      for (const line of stepLines) {
+        const stepMatch = line.match(/^\d+\.\s+\*([^*]+)\*\s+\((\w+)\)/);
+        if (stepMatch) {
+          const step = UATCore.createEmptyWorkflowStep();
+          step.stepId = `step_${schema.workflow.steps.length}`;
+          step.name = stepMatch[1];
+          step.type = stepMatch[2];
+          schema.workflow.steps.push(step);
+        }
+      }
+    }
+  }
+}
+
+function parseCursorMCPJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const mcpConfig = JSON.parse(jsonText);
+
+    if (mcpConfig.mcpServers) {
+      for (const [name, config] of Object.entries(mcpConfig.mcpServers)) {
+        const mcp = UATCore.createEmptyMCPServer();
+        mcp.id = name;
+        mcp.name = name;
+        mcp.config = {
+          command: config.command || '',
+          args: config.args || [],
+          env: config.env || {},
+          transport: config.url ? 'http' : 'stdio'
+        };
+        mcp.enabled = !config.disabled;
+        schema.tools.mcpServers.push(mcp);
+      }
+    }
+  } catch (e) {
+    console.warn('mcp.json 解析警告:', e.message);
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Cursor 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeCursorToFiles(schema) {
+  return {
+    '.cursorrules': encodeCursorRulesMain(schema),
+    '.cursorignore': encodeCursorIgnore(schema),
+    '.cursor/rules/general.md': encodeCursorRulesGeneral(schema),
+    '.cursor/rules/code-style.md': encodeCursorRulesCodeStyle(schema),
+    '.cursor/rules/frontend.md': encodeCursorRulesFrontend(schema),
+    '.cursor/rules/backend.md': encodeCursorRulesBackend(schema),
+    '.cursor/rules/tests.md': encodeCursorRulesTests(schema),
+    '.cursor/rules/tools.md': encodeCursorRulesTools(schema),
+    '.cursor/rules/workflow.md': encodeCursorRulesWorkflow(schema),
+    '.cursor/mcp.json': encodeCursorMCPJSON(schema),
+    '.cursor/settings.json': encodeCursorSettingsJSON(schema),
+    '.env.example': encodeCursorEnvExample(schema),
+    'README.md': encodeCursorReadme(schema)
+  };
+}
+
+window.CursorBundle = {
+  createCursorBundle,
+  parseCursorBundle,
+  parseCursorBundleFromFiles,
+  encodeCursorRulesMain,
+  encodeCursorIgnore,
+  encodeCursorRulesGeneral,
+  encodeCursorRulesCodeStyle,
+  encodeCursorRulesFrontend,
+  encodeCursorRulesBackend,
+  encodeCursorRulesTests,
+  encodeCursorRulesTools,
+  encodeCursorRulesWorkflow,
+  encodeCursorMCPJSON,
+  encodeCursorSettingsJSON,
+  encodeCursorContextFiles,
+  encodeCursorEnvExample,
+  encodeCursorReadme,
+  generateCursorMCPWrapper,
+  generateCursorAPITools,
+  encodeCursorToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.CursorBundle;
+}
+// Link global alias
+CursorBundle = window.CursorBundle;
+
+// ===== src/bundle/windsurf-bundle.js =====
+/**
+ * UAT Windsurf Bundle 管理器 - Windsurf Bundle Manager
+ * 专门处理 Windsurf IDE Agent 的多文件配置包导入导出
+ *
+ * Windsurf 配置结构（与Cursor几乎相同）：
+ * 项目根目录/
+ * ├── .windsurfrules            # 主规则文件（最高优先级）
+ * ├── .windsurfignore           # 文件索引排除
+ * ├── .windsurf/
+ * │   ├── rules/                # 多规则文件目录
+ * │   │   ├── general.md        # 通用规则
+ * │   │   ├── code-style.md     # 代码风格
+ * │   │   ├── frontend.md       # 前端规则
+ * │   │   ├── backend.md        # 后端规则
+ * │   │   ├── tests.md          # 测试规则
+ * │   │   ├── tools.md          # 工具说明
+ * │   │   └── workflow.md       # 工作流
+ * │   ├── mcp.json              # MCP服务器配置
+ * │   ├── settings.json         # Windsurf项目设置
+ * │   └── context/
+ * │       └── files.json        # 始终包含的文件列表
+ * └── mcp-tools/                # MCP工具包装脚本（可选）
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Windsurf Bundle 创建（导出）
+// ============================================
+
+/**
+ * 创建 Windsurf Bundle ZIP 包
+ * @param {Object} schema - UAT-Schema v2.0
+ * @param {Object} options - 可选配置
+ * @returns {Promise<Blob>} ZIP 文件
+ */
+async function createWindsurfBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json - Bundle 清单
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Windsurf-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainRules: ".windsurfrules",
+      windsurfDir: ".windsurf/",
+      rulesDir: ".windsurf/rules/",
+      mcpConfig: ".windsurf/mcp.json",
+      settings: ".windsurf/settings.json",
+      ignore: ".windsurfignore",
+      envTemplate: ".env.example"
+    },
+    rulesFiles: [
+      "general.md",
+      "code-style.md",
+      "frontend.md",
+      "backend.md",
+      "tests.md",
+      "tools.md",
+      "workflow.md"
+    ],
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Windsurf Bundle"
+    },
+    notes: {
+      cascadeFlow: "Windsurf特有的Cascade Flow多步骤推理模式",
+      mcpServers: "MCP工具配置已保留，需安装对应MCP服务器",
+      secrets: "密钥已移除，请填写 .env 文件"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. .windsurfrules - 主规则文件（最高优先级）
+  const windsurfRules = encodeWindsurfRulesMain(schema);
+  zip.file(".windsurfrules", windsurfRules);
+
+  // 3. .windsurfignore - 文件排除规则
+  const windsurfIgnore = encodeWindsurfIgnore(schema);
+  zip.file(".windsurfignore", windsurfIgnore);
+
+  // 4. .windsurf/ 目录
+  const windsurfFolder = zip.folder(".windsurf");
+
+  // 4.1 rules/ 多规则文件目录
+  const rulesFolder = windsurfFolder.folder("rules");
+  rulesFolder.file("general.md", encodeWindsurfRulesGeneral(schema));
+  rulesFolder.file("code-style.md", encodeWindsurfRulesCodeStyle(schema));
+  rulesFolder.file("frontend.md", encodeWindsurfRulesFrontend(schema));
+  rulesFolder.file("backend.md", encodeWindsurfRulesBackend(schema));
+  rulesFolder.file("tests.md", encodeWindsurfRulesTests(schema));
+  rulesFolder.file("tools.md", encodeWindsurfRulesTools(schema));
+  rulesFolder.file("workflow.md", encodeWindsurfRulesWorkflow(schema));
+
+  // 4.2 mcp.json - MCP服务器配置
+  const mcpJSON = encodeWindsurfMCPJSON(schema);
+  windsurfFolder.file("mcp.json", mcpJSON);
+
+  // 4.3 settings.json - Windsurf项目设置
+  const settingsJSON = encodeWindsurfSettingsJSON(schema);
+  windsurfFolder.file("settings.json", settingsJSON);
+
+  // 4.4 context/files.json - 始终包含的文件
+  const contextFolder = windsurfFolder.folder("context");
+  const filesJSON = encodeWindsurfContextFiles(schema);
+  contextFolder.file("files.json", filesJSON);
+
+  // 5. mcp-tools/ 目录（如果有MCP工具）
+  if (schema.tools.mcpServers?.length > 0 || schema.tools.apiEndpoints?.length > 0) {
+    const mcpToolsFolder = zip.folder("mcp-tools");
+    mcpToolsFolder.file("mcp_wrapper.js", generateWindsurfMCPWrapper(schema));
+    mcpToolsFolder.file("api_tools.js", generateWindsurfAPITools(schema));
+    mcpToolsFolder.file("README.md", generateWindsurfMCPToolsReadme(schema));
+  }
+
+  // 6. .env.example - 密钥模板
+  const envExample = encodeWindsurfEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 7. README.md - 使用说明
+  const readmeMD = encodeWindsurfReadme(schema);
+  zip.file("README.md", readmeMD);
+
+  // 8. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// Windsurf 规则编码器（复用Cursor逻辑）
+// ============================================
+
+function encodeWindsurfRulesMain(schema) {
+  const sections = [];
+
+  sections.push('# Windsurf Rules - Main Configuration');
+  sections.push('');
+  sections.push('> This file is loaded with highest priority for all Windsurf AI interactions.');
+  sections.push('> Powered by Codeium Cascade Flow engine.');
+  sections.push('');
+
+  // 项目信息
+  sections.push('## Project');
+  sections.push('');
+  sections.push(`- **Name**: ${schema.meta.name || 'Windsurf Agent'}`);
+  sections.push(`- **Description**: ${schema.meta.description || 'AI Assistant'}`);
+  sections.push('');
+
+  // Cascade Flow 说明
+  sections.push('## Cascade Flow');
+  sections.push('');
+  sections.push('Windsurf uses Cascade Flow for multi-step reasoning:');
+  sections.push('1. **Understand** → Analyze request and context');
+  sections.push('2. **Plan** → Identify files and changes needed');
+  sections.push('3. **Execute** → Make changes incrementally');
+  sections.push('4. **Verify** → Test and validate changes');
+  sections.push('');
+
+  // 核心行为规则
+  sections.push('## Core Behavior');
+  sections.push('');
+
+  if (schema.identity.systemPrompt) {
+    sections.push(schema.identity.systemPrompt);
+    sections.push('');
+  }
+
+  // Role 定位
+  if (schema.identity.role) {
+    sections.push('## Role');
+    sections.push('');
+    sections.push(`You are acting as: ${schema.identity.role}`);
+    sections.push('');
+  }
+
+  // Personality 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(`Communication style: ${schema.identity.personality}`);
+    sections.push('');
+  }
+
+  // Language 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push(`- Respond in ${langDisplay} unless specified otherwise`);
+    sections.push('');
+  }
+
+  // 约束规则
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Hard Constraints');
+    sections.push('');
+    sections.push('> These rules must NEVER be violated:');
+    sections.push('');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // 输出规则
+  if (schema.identity.outputRules?.length > 0) {
+    sections.push('## Output Format');
+    sections.push('');
+    for (const r of schema.identity.outputRules) {
+      sections.push(`- ${r}`);
+    }
+    sections.push('');
+  }
+
+  // 引用其他规则文件
+  sections.push('## Additional Rules');
+  sections.push('');
+  sections.push('> See `.windsurf/rules/` directory for detailed rules:');
+  sections.push('- `general.md` - General guidelines');
+  sections.push('- `code-style.md` - Code formatting');
+  sections.push('- `frontend.md` - Frontend rules (src/frontend/**)');
+  sections.push('- `backend.md` - Backend rules');
+  sections.push('- `tests.md` - Testing rules');
+  sections.push('');
+
+  // Memory encoding（使用memoryEntries）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToList(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push(kbEncoder.encodeKnowledgeToList(kbContent));
+    }
+  }
+
+  // 技能编码
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToList(schema.skills));
+  }
+
+  // MCP工具引用
+  if (schema.tools.mcpServers?.length > 0) {
+    sections.push('## MCP Tools Available');
+    sections.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`- **${mcp.name}**: ${mcp.tools?.map(t => t.name).join(', ') || 'MCP Server'}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+function encodeWindsurfIgnore(schema) {
+  const lines = [];
+
+  lines.push('# Windsurf Ignore File');
+  lines.push('# Excludes files from Windsurf AI context');
+  lines.push('');
+
+  lines.push('# Dependencies');
+  lines.push('node_modules/');
+  lines.push('package-lock.json');
+  lines.push('');
+
+  lines.push('# Build outputs');
+  lines.push('dist/');
+  lines.push('build/');
+  lines.push('');
+
+  lines.push('# Secrets (IMPORTANT)');
+  lines.push('.env');
+  lines.push('.env.local');
+  lines.push('.env.*.local');
+  lines.push('');
+
+  lines.push('# Cache');
+  lines.push('.cache/');
+  lines.push('*.log');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// 复用Cursor的规则编码器，仅改标题
+function encodeWindsurfRulesGeneral(schema) {
+  let output = window.CursorBundle?.encodeCursorRulesGeneral(schema) || '';
+  // 替换标题
+  output = output.replace('# General Rules', '# General Rules\n> Windsurf AI Guidelines');
+  return output;
+}
+
+function encodeWindsurfRulesCodeStyle(schema) {
+  let output = window.CursorBundle?.encodeCursorRulesCodeStyle(schema) || '';
+  output = output.replace('# Code Style Rules', '# Code Style Rules\n> Windsurf Code Formatting');
+  return output;
+}
+
+function encodeWindsurfRulesFrontend(schema) {
+  let output = window.CursorBundle?.encodeCursorRulesFrontend(schema) || '';
+  output = output.replace('# Frontend Rules', '# Frontend Rules\n> Windsurf Frontend Guidelines');
+  return output;
+}
+
+function encodeWindsurfRulesBackend(schema) {
+  let output = window.CursorBundle?.encodeCursorRulesBackend(schema) || '';
+  output = output.replace('# Backend Rules', '# Backend Rules\n> Windsurf Backend Guidelines');
+  return output;
+}
+
+function encodeWindsurfRulesTests(schema) {
+  let output = window.CursorBundle?.encodeCursorRulesTests(schema) || '';
+  output = output.replace('# Testing Rules', '# Testing Rules\n> Windsurf Testing Guidelines');
+  return output;
+}
+
+function encodeWindsurfRulesTools(schema) {
+  let output = window.CursorBundle?.encodeCursorRulesTools(schema) || '';
+  output = output.replace('# Tool Usage Rules', '# Tool Usage Rules\n> Windsurf MCP Tool Guidelines');
+  return output;
+}
+
+function encodeWindsurfRulesWorkflow(schema) {
+  let output = window.CursorBundle?.encodeCursorRulesWorkflow(schema) || '';
+  output = output.replace('# Workflow Rules', '# Workflow Rules\n> Windsurf Cascade Flow Steps');
+  return output;
+}
+
+function encodeWindsurfMCPJSON(schema) {
+  // 完全复用Cursor的MCP配置
+  return window.CursorBundle?.encodeCursorMCPJSON(schema) || '{}';
+}
+
+function encodeWindsurfSettingsJSON(schema) {
+  const settings = {
+    "windsurf.ai": {
+      "model": "cascade",  // Windsurf特有的Cascade模型
+      "cascadeFlow": true,
+      "contextWindow": 100000
+    },
+    "windsurf.context": {
+      "includePattern": ["**/*.ts", "**/*.js", "**/*.py"],
+      "excludePattern": ["node_modules/**", "dist/**"]
+    },
+    "windsurf.rules": {
+      "projectRules": true,
+      "userRules": false
+    },
+    "editor": {
+      "formatOnSave": true,
+      "tabSize": 4
+    }
+  };
+
+  return JSON.stringify(settings, null, 2);
+}
+
+function encodeWindsurfContextFiles(schema) {
+  const contextFiles = {
+    description: "Files always included in Windsurf context",
+    files: ["README.md", ".windsurfrules", "package.json"],
+    watchFiles: [".windsurf/rules/*.md"]
+  };
+
+  return JSON.stringify(contextFiles, null, 2);
+}
+
+function encodeWindsurfEnvExample(schema) {
+  // 复用Cursor的环境变量模板
+  let output = window.CursorBundle?.encodeCursorEnvExample(schema) || '';
+  output = output.replace('Cursor', 'Windsurf');
+  return output;
+}
+
+function generateWindsurfMCPWrapper(schema) {
+  const lines = [];
+
+  lines.push('/**');
+  lines.push(' * Windsurf MCP Tools Wrapper');
+  lines.push(' * Generated by UAT Converter');
+  lines.push(' */');
+  lines.push('');
+  lines.push('const MCP_SERVERS = {');
+
+  if (schema.tools.mcpServers?.length > 0) {
+    for (const mcp of schema.tools.mcpServers) {
+      lines.push(`  "${mcp.name}": {`);
+      lines.push(`    url: "${mcp.url || ''}",`);
+      lines.push(`    enabled: ${mcp.enabled !== false}`);
+      lines.push(`  },`);
+    }
+  }
+
+  lines.push('};');
+  lines.push('');
+  lines.push('module.exports = { MCP_SERVERS };');
+
+  return lines.join('\n');
+}
+
+function generateWindsurfAPITools(schema) {
+  // 复用Cursor的API工具
+  return window.CursorBundle?.generateCursorAPITools(schema) || '';
+}
+
+function generateWindsurfMCPToolsReadme(schema) {
+  const sections = [];
+
+  sections.push('# Windsurf MCP Tools');
+  sections.push('');
+  sections.push('MCP server wrapper scripts for Windsurf.');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+function encodeWindsurfReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Windsurf Agent'} - Bundle`);
+  sections.push('');
+  sections.push('Windsurf Agent Bundle with Cascade Flow support.');
+  sections.push('');
+
+  sections.push('## Contents');
+  sections.push('');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `.windsurfrules` | Main rules (highest priority) |');
+  sections.push('| `.windsurf/rules/*.md` | Category-specific rules |');
+  sections.push('| `.windsurf/mcp.json` | MCP server config |');
+  sections.push('| `.windsurf/settings.json` | Windsurf settings |');
+  sections.push('');
+
+  sections.push('## Cascade Flow');
+  sections.push('');
+  sections.push('Windsurf uses multi-step Cascade Flow:');
+  sections.push('1. Understand → 2. Plan → 3. Execute → 4. Verify');
+  sections.push('');
+
+  sections.push('## Installation');
+  sections.push('');
+  sections.push('1. Extract to project root');
+  sections.push('2. Open in Windsurf IDE');
+  sections.push('3. Rules auto-loaded');
+  sections.push('');
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Windsurf Bundle 解析（导入）
+// ============================================
+
+async function parseWindsurfBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  // 1. 解析 manifest
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  // 2. 解析 .windsurfrules
+  const windsurfRulesFile = zip.file(".windsurfrules");
+  let windsurfRules = '';
+  if (windsurfRulesFile) {
+    windsurfRules = await windsurfRulesFile.async("string");
+  }
+
+  // 3. 解析 .windsurf/rules/
+  const rulesDir = zip.folder(".windsurf").folder("rules");
+  const rulesFiles = {};
+  for (const filename of ['general.md', 'code-style.md', 'frontend.md', 'backend.md', 'tests.md', 'tools.md', 'workflow.md']) {
+    const file = rulesDir.file(filename);
+    if (file) {
+      rulesFiles[filename] = await file.async("string");
+    }
+  }
+
+  // 4. 解析 mcp.json
+  const mcpFile = zip.folder(".windsurf").file("mcp.json");
+  let mcpJSON = '';
+  if (mcpFile) {
+    mcpJSON = await mcpFile.async("string");
+  }
+
+  // 5. 构建 Schema
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'windsurf';
+  schema.meta.name = manifest.agent?.name || 'Windsurf Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  // 解析规则
+  parseWindsurfRulesMain(windsurfRules, schema);
+  parseWindsurfRulesFiles(rulesFiles, schema);
+  parseWindsurfMCPJSON(mcpJSON, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  const rawFiles = { windsurfRules, rulesFiles, mcpJSON };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 从提取的文件直接解析 Windsurf 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseWindsurfBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'windsurf';
+
+  // 查找并解析 .windsurfrules 主规则文件
+  const windsurfRules = findFileByPattern(extractedFiles, ['.windsurfrules', 'windsurfrules']);
+  if (windsurfRules) {
+    parseWindsurfRulesMain(windsurfRules, schema);
+  }
+
+  // 查找并解析 .windsurf/rules/*.md 规则文件
+  const rulesFiles = {};
+  const ruleNames = ['general.md', 'code-style.md', 'frontend.md', 'backend.md', 'tests.md', 'tools.md', 'workflow.md'];
+  for (const ruleName of ruleNames) {
+    const content = findFileByPattern(extractedFiles, [
+      '.windsurf/rules/' + ruleName,
+      'windsurf/rules/' + ruleName,
+      ruleName
+    ]);
+    if (content) {
+      rulesFiles[ruleName] = content;
+    }
+  }
+  parseWindsurfRulesFiles(rulesFiles, schema);
+
+  // 查找并解析 mcp.json
+  const mcpJSON = findFileByPattern(extractedFiles, [
+    '.windsurf/mcp.json',
+    'windsurf/mcp.json',
+    'mcp.json'
+  ]);
+  if (mcpJSON) {
+    parseWindsurfMCPJSON(mcpJSON, schema);
+  }
+
+  // 查找并解析 settings.json
+  const settingsJSON = findFileByPattern(extractedFiles, [
+    '.windsurf/settings.json',
+    'windsurf/settings.json',
+    'settings.json'
+  ]);
+  if (settingsJSON) {
+    try {
+      const settings = JSON.parse(settingsJSON);
+      if (settings['windsurf.ai']?.model) {
+        schema.modelConfig.model = settings['windsurf.ai'].model;
+      }
+      if (settings['windsurf.ai']?.temperature) {
+        schema.modelConfig.temperature = settings['windsurf.ai'].temperature;
+      }
+    } catch (e) {
+      console.warn('Windsurf settings JSON parse warning:', e.message);
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseWindsurfRulesMain(mdText, schema) {
+  if (!mdText) return;
+
+  // 提取项目名称
+  const nameMatch = mdText.match(/\*Name\*: (.+)/i);
+  if (nameMatch) {
+    schema.meta.name = nameMatch[1].trim();
+  }
+
+  // 提取核心行为
+  const coreMatch = mdText.match(/## Core Behavior\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (coreMatch) {
+    schema.identity.systemPrompt = coreMatch[1].trim();
+  }
+
+  // 提取约束
+  const constraintsMatch = mdText.match(/## Hard Constraints\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (constraintsMatch) {
+    const lines = constraintsMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.constraints.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+}
+
+function parseWindsurfRulesFiles(rulesFiles, schema) {
+  // 复用Cursor的解析逻辑
+  if (rulesFiles['general.md']) {
+    const guidelinesMatch = rulesFiles['general.md'].match(/## Guidelines\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (guidelinesMatch) {
+      const guidelines = guidelinesMatch[1].split('\n')
+        .filter(l => l.trim().startsWith('-'))
+        .map(l => l.replace(/^-\s*/, '').trim())
+        .join('\n');
+      schema.identity.systemPrompt += '\n\n' + guidelines;
+    }
+  }
+}
+
+function parseWindsurfMCPJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const mcpConfig = JSON.parse(jsonText);
+
+    if (mcpConfig.mcpServers) {
+      for (const [name, config] of Object.entries(mcpConfig.mcpServers)) {
+        const mcp = UATCore.createEmptyMCPServer();
+        mcp.id = name;
+        mcp.name = name;
+        mcp.config = {
+          command: config.command || '',
+          args: config.args || [],
+          env: config.env || {}
+        };
+        mcp.enabled = !config.disabled;
+        schema.tools.mcpServers.push(mcp);
+      }
+    }
+  } catch (e) {
+    console.warn('mcp.json parse warning:', e.message);
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Windsurf 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeWindsurfToFiles(schema) {
+  return {
+    '.windsurfrules': encodeWindsurfRulesMain(schema),
+    '.windsurfignore': encodeWindsurfIgnore(schema),
+    '.windsurf/rules/general.md': encodeWindsurfRulesGeneral(schema),
+    '.windsurf/rules/code-style.md': encodeWindsurfRulesCodeStyle(schema),
+    '.windsurf/rules/frontend.md': encodeWindsurfRulesFrontend(schema),
+    '.windsurf/rules/backend.md': encodeWindsurfRulesBackend(schema),
+    '.windsurf/rules/tests.md': encodeWindsurfRulesTests(schema),
+    '.windsurf/rules/tools.md': encodeWindsurfRulesTools(schema),
+    '.windsurf/rules/workflow.md': encodeWindsurfRulesWorkflow(schema),
+    '.windsurf/mcp.json': encodeWindsurfMCPJSON(schema),
+    '.windsurf/settings.json': encodeWindsurfSettingsJSON(schema),
+    '.env.example': encodeWindsurfEnvExample(schema),
+    'README.md': encodeWindsurfReadme(schema)
+  };
+}
+
+window.WindsurfBundle = {
+  createWindsurfBundle,
+  parseWindsurfBundle,
+  parseWindsurfBundleFromFiles,
+  encodeWindsurfRulesMain,
+  encodeWindsurfIgnore,
+  encodeWindsurfRulesGeneral,
+  encodeWindsurfRulesCodeStyle,
+  encodeWindsurfRulesFrontend,
+  encodeWindsurfRulesBackend,
+  encodeWindsurfRulesTests,
+  encodeWindsurfRulesTools,
+  encodeWindsurfRulesWorkflow,
+  encodeWindsurfMCPJSON,
+  encodeWindsurfSettingsJSON,
+  encodeWindsurfContextFiles,
+  encodeWindsurfEnvExample,
+  encodeWindsurfReadme,
+  encodeWindsurfToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.WindsurfBundle;
+}
+// Link global alias
+WindsurfBundle = window.WindsurfBundle;
+
+// ===== src/bundle/claude-code-bundle.js =====
+/**
+ * UAT Claude Code Bundle 管理器 - Claude Code Bundle Manager
+ * 专门处理 Claude Code CLI 的多文件配置包导入导出
+ *
+ * Claude Code 配置结构：
+ * 项目根目录/
+ * ├── CLAUDE.md                 # 主Skill文件（YAML头 + Instructions）
+ * ├── .claude/
+ * │   ├── settings.json         # Claude设置
+ * │   ├── mcp_servers.json      # MCP服务器配置
+ * │   ├── skills/               # 自定义Skills目录
+ * │   │   ├── review.md         # 代码审查Skill
+ * │   │   ├── test.md           # 测试Skill
+ * │   │   └── deploy.md         # 部署Skill
+ * │   ├── commands/             # Slash命令定义
+ * │   │   ├── test.md           # /test 命令
+ * │   │   ├── review.md         # /review 命令
+ * │   │   └── fix.md            # /fix 命令
+ * │   └── context/
+ * │       └── always_include.json
+ * ├── scripts/
+ * │   └── setup.sh
+ * └── .env.example
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Claude Code Bundle 创建（导出）
+// ============================================
+
+/**
+ * 创建 Claude Code Bundle ZIP 包
+ * @param {Object} schema - UAT-Schema v2.0
+ * @param {Object} options - 可选配置
+ * @returns {Promise<Blob>} ZIP 文件
+ */
+async function createClaudeCodeBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json - Bundle 清单
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Claude-Code-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainSkill: "CLAUDE.md",
+      claudeDir: ".claude/",
+      skillsDir: ".claude/skills/",
+      commandsDir: ".claude/commands/",
+      mcpConfig: ".claude/mcp_servers.json",
+      settings: ".claude/settings.json"
+    },
+    skillsFiles: [
+      "review.md",
+      "test.md",
+      "deploy.md",
+      "debug.md"
+    ],
+    commandsFiles: [
+      "test.md",
+      "review.md",
+      "fix.md",
+      "commit.md"
+    ],
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Claude Code Bundle"
+    },
+    notes: {
+      mcpServers: "MCP工具配置已保留，需安装对应MCP服务器",
+      secrets: "密钥已移除，请填写 .env 文件",
+      slashCommands: "Slash命令可通过 claude /<command> 使用"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. CLAUDE.md - 主Skill文件（YAML头 + Markdown）
+  const claudeMD = encodeClaudeMDMain(schema);
+  zip.file("CLAUDE.md", claudeMD);
+
+  // 3. .claude/ 目录
+  const claudeFolder = zip.folder(".claude");
+
+  // 3.1 settings.json
+  const settingsJSON = encodeClaudeSettingsJSON(schema);
+  claudeFolder.file("settings.json", settingsJSON);
+
+  // 3.2 mcp_servers.json
+  const mcpJSON = encodeClaudeMCPJSON(schema);
+  claudeFolder.file("mcp_servers.json", mcpJSON);
+
+  // 3.3 skills/ 目录
+  const skillsFolder = claudeFolder.folder("skills");
+  skillsFolder.file("review.md", encodeClaudeSkillReview(schema));
+  skillsFolder.file("test.md", encodeClaudeSkillTest(schema));
+  skillsFolder.file("deploy.md", encodeClaudeSkillDeploy(schema));
+  skillsFolder.file("debug.md", encodeClaudeSkillDebug(schema));
+
+  // 3.4 commands/ 目录
+  const commandsFolder = claudeFolder.folder("commands");
+  commandsFolder.file("test.md", encodeClaudeCommandTest(schema));
+  commandsFolder.file("review.md", encodeClaudeCommandReview(schema));
+  commandsFolder.file("fix.md", encodeClaudeCommandFix(schema));
+  commandsFolder.file("commit.md", encodeClaudeCommandCommit(schema));
+
+  // 3.5 context/ 目录
+  const contextFolder = claudeFolder.folder("context");
+  const alwaysIncludeJSON = encodeClaudeAlwaysIncludeJSON(schema);
+  contextFolder.file("always_include.json", alwaysIncludeJSON);
+
+  // 4. scripts/ 目录
+  const scriptsFolder = zip.folder("scripts");
+  scriptsFolder.file("setup.sh", generateClaudeSetupScript(schema));
+
+  // 5. .env.example
+  const envExample = encodeClaudeEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 6. README.md
+  const readmeMD = encodeClaudeReadme(schema);
+  zip.file("README.md", readmeMD);
+
+  // 7. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// CLAUDE.md 主Skill文件编码器
+// ============================================
+
+function encodeClaudeMDMain(schema) {
+  const sections = [];
+
+  // YAML Frontmatter
+  sections.push('---');
+  sections.push(`name: "${schema.meta.name || 'Claude Agent'}"`);
+  sections.push(`description: "${schema.meta.description || 'AI Assistant'}"`);
+  sections.push(`model: "${schema.modelConfig.model || 'claude-sonnet-4-20250514'}"`);
+
+  // Identity扩展字段
+  if (schema.identity.role) {
+    sections.push(`role: "${schema.identity.role}"`);
+  }
+  if (schema.identity.personality) {
+    sections.push(`personality: "${schema.identity.personality}"`);
+  }
+  if (schema.identity.language) {
+    sections.push(`language: "${schema.identity.language}"`);
+  }
+
+  // Tools 配置
+  sections.push('tools:');
+  sections.push('  - filesystem_read');
+  sections.push('  - filesystem_write');
+  sections.push('  - terminal_execute');
+  sections.push('  - web_search');
+
+  // MCP Servers
+  if (schema.tools.mcpServers?.length > 0) {
+    sections.push('mcpServers:');
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`  - name: "${mcp.name}"`);
+      sections.push(`    url: "${mcp.url || 'local'}"`);
+    }
+  }
+
+  // Skills 引用
+  sections.push('skills:');
+  sections.push('  - "./skills/review.md"');
+  sections.push('  - "./skills/test.md"');
+  sections.push('  - "./skills/debug.md"');
+
+  // 允许路径
+  sections.push('allowedPaths:');
+  sections.push('  - "./src"');
+  sections.push('  - "./tests"');
+
+  // 其他参数
+  sections.push(`maxTokens: ${schema.modelConfig.maxTokens || 4096}`);
+  sections.push(`temperature: ${schema.modelConfig.temperature || 0.7}`);
+  sections.push('---');
+  sections.push('');
+
+  // Instructions 正文
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('You are an AI coding assistant for this project.');
+  sections.push('');
+
+  // 项目上下文
+  sections.push('## Project Context');
+  sections.push('');
+  sections.push(`- Name: ${schema.meta.name}`);
+  sections.push(`- Description: ${schema.meta.description}`);
+  sections.push('');
+
+  // 核心行为
+  if (schema.identity.systemPrompt) {
+    sections.push('## Core Behavior');
+    sections.push('');
+    sections.push(schema.identity.systemPrompt);
+    sections.push('');
+  }
+
+  // 约束规则
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Constraints');
+    sections.push('');
+    sections.push('> These rules must NEVER be violated:');
+    sections.push('');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // 输出规则
+  if (schema.identity.outputRules?.length > 0) {
+    sections.push('## Output Format');
+    sections.push('');
+    for (const r of schema.identity.outputRules) {
+      sections.push(`- ${r}`);
+    }
+    sections.push('');
+  }
+
+  // Memory encoding（使用JSON代码块格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToClaudeMD(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码（使用JSON代码块格式）
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Base');
+      sections.push('');
+      sections.push('```json');
+      sections.push(JSON.stringify({
+        datasets: kbContent.datasets?.map(ds => ({
+          id: ds.id,
+          name: ds.name,
+          type: ds.type
+        })) || [],
+        documents: kbContent.documents?.map(doc => ({
+          id: doc.id,
+          title: doc.title,
+          source: doc.source
+        })) || []
+      }, null, 2));
+      sections.push('```');
+      sections.push('');
+    }
+  }
+
+  // 技能编码（使用JSON代码块格式）
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToJSONBlock(schema.skills));
+  }
+
+  // 工作流
+  sections.push('## Workflow');
+  sections.push('');
+  sections.push('When implementing a feature:');
+  sections.push('1. Read relevant files first');
+  sections.push('2. Plan the implementation approach');
+  sections.push('3. Write code incrementally');
+  sections.push('4. Add tests for new functionality');
+  sections.push('5. Verify everything works');
+  sections.push('');
+
+  // 可用Skills说明
+  sections.push('## Available Skills');
+  sections.push('');
+  sections.push('Use these skills for specific tasks:');
+  sections.push('- `review` - Code review and feedback');
+  sections.push('- `test` - Write and run tests');
+  sections.push('- `debug` - Debug issues');
+  sections.push('- `deploy` - Deployment preparation');
+  sections.push('');
+
+  // Slash命令说明
+  sections.push('## Slash Commands');
+  sections.push('');
+  sections.push('Available commands:');
+  sections.push('- `/test` - Run test command');
+  sections.push('- `/review` - Review recent changes');
+  sections.push('- `/fix` - Fix detected issues');
+  sections.push('- `/commit` - Prepare commit');
+  sections.push('');
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Settings 配置编码器
+// ============================================
+
+function encodeClaudeSettingsJSON(schema) {
+  const settings = {
+    "model": {
+      "default": schema.modelConfig.model || "claude-sonnet-4-20250514",
+      "fallback": "claude-3-5-haiku"
+    },
+    "tools": {
+      "autoApprove": [
+        "filesystem_read",
+        "terminal_safe",
+        "web_search"
+      ],
+      "requireApproval": [
+        "filesystem_write",
+        "filesystem_delete",
+        "terminal_execute"
+      ]
+    },
+    "context": {
+      "alwaysInclude": [
+        "README.md",
+        "CLAUDE.md",
+        "package.json"
+      ],
+      "maxFiles": 20,
+      "maxTokens": 50000
+    },
+    "output": {
+      "format": "markdown",
+      "showThinking": false,
+      "codeBlocks": true
+    },
+    "terminal": {
+      "timeout": 30000,
+      "sandbox": true,
+      "allowedCommands": ["npm", "node", "git", "cargo", "pytest"]
+    }
+  };
+
+  return JSON.stringify(settings, null, 2);
+}
+
+function encodeClaudeMCPJSON(schema) {
+  const mcpConfig = {
+    "mcpServers": {}
+  };
+
+  if (schema.tools.mcpServers?.length > 0) {
+    for (const mcp of schema.tools.mcpServers) {
+      const serverConfig = {
+        "command": mcp.config?.command || "npx",
+        "args": mcp.config?.args || ["-y", "@anthropic/mcp-server-" + mcp.name],
+        "env": {}
+      };
+
+      if (mcp.config?.env) {
+        for (const [key, value] of Object.entries(mcp.config.env)) {
+          if (key.includes('KEY') || key.includes('TOKEN') || key.includes('SECRET')) {
+            serverConfig.env[key] = `$${key}`;
+          } else {
+            serverConfig.env[key] = value;
+          }
+        }
+      }
+
+      serverConfig.disabled = mcp.enabled === false;
+
+      mcpConfig.mcpServers[mcp.name] = serverConfig;
+    }
+  }
+
+  return JSON.stringify(mcpConfig, null, 2);
+}
+
+// ============================================
+// Skills 文件编码器
+// ============================================
+
+function encodeClaudeSkillReview(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "Code Review"');
+  sections.push('description: "Review code for quality and issues"');
+  sections.push('tools:');
+  sections.push('  - filesystem_read');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Perform thorough code review:');
+  sections.push('');
+  sections.push('## Review Checklist');
+  sections.push('');
+  sections.push('- Code quality and readability');
+  sections.push('- Type safety and correctness');
+  sections.push('- Error handling completeness');
+  sections.push('- Performance considerations');
+  sections.push('- Security vulnerabilities');
+  sections.push('- Test coverage');
+  sections.push('');
+  sections.push('## Output Format');
+  sections.push('');
+  sections.push('```');
+  sections.push('File: [filename]');
+  sections.push('Issues:');
+  sections.push('  - [Critical]: [description]');
+  sections.push('  - [Suggested]: [description]');
+  sections.push('Suggestions:');
+  sections.push('  - [how to fix]');
+  sections.push('```');
+
+  return sections.join('\n');
+}
+
+function encodeClaudeSkillTest(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "Write Tests"');
+  sections.push('description: "Generate unit tests for code"');
+  sections.push('tools:');
+  sections.push('  - filesystem_read');
+  sections.push('  - filesystem_write');
+  sections.push('  - terminal_execute');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Generate comprehensive tests:');
+  sections.push('');
+  sections.push('## Test Structure');
+  sections.push('');
+  sections.push('- Clear test names');
+  sections.push('- Test edge cases');
+  sections.push('- Test error conditions');
+  sections.push('- Use mocking for dependencies');
+  sections.push('');
+  sections.push('## Framework');
+  sections.push('');
+  sections.push('- Use Jest for JavaScript/TypeScript');
+  sections.push('- Use pytest for Python');
+  sections.push('- Use cargo test for Rust');
+
+  return sections.join('\n');
+}
+
+function encodeClaudeSkillDeploy(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "Deploy Preparation"');
+  sections.push('description: "Prepare code for deployment"');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Prepare deployment checklist:');
+  sections.push('');
+  sections.push('## Checklist');
+  sections.push('');
+  sections.push('- Environment variables configured');
+  sections.push('- Secrets not hardcoded');
+  sections.push('- Build passes');
+  sections.push('- Tests pass');
+  sections.push('- Documentation updated');
+
+  return sections.join('\n');
+}
+
+function encodeClaudeSkillDebug(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "Debug Issues"');
+  sections.push('description: "Debug and fix code issues"');
+  sections.push('tools:');
+  sections.push('  - filesystem_read');
+  sections.push('  - terminal_execute');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Debug workflow:');
+  sections.push('');
+  sections.push('## Steps');
+  sections.push('');
+  sections.push('1. Identify the error');
+  sections.push('2. Locate relevant code');
+  sections.push('3. Analyze the cause');
+  sections.push('4. Propose fix');
+  sections.push('5. Verify fix works');
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Slash Commands 编码器
+// ============================================
+
+function encodeClaudeCommandTest(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "test"');
+  sections.push('description: "Run tests for the project"');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Execute project tests:');
+  sections.push('');
+  sections.push('1. Run test command (npm test / pytest / cargo test)');
+  sections.push('2. Report test results');
+  sections.push('3. Suggest fixes for failing tests');
+
+  return sections.join('\n');
+}
+
+function encodeClaudeCommandReview(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "review"');
+  sections.push('description: "Review recent code changes"');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Review recent changes:');
+  sections.push('');
+  sections.push('1. Check git diff for changes');
+  sections.push('2. Analyze code quality');
+  sections.push('3. Provide feedback');
+
+  return sections.join('\n');
+}
+
+function encodeClaudeCommandFix(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "fix"');
+  sections.push('description: "Fix detected issues"');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Fix issues in code:');
+  sections.push('');
+  sections.push('1. Identify issues (lint errors, test failures)');
+  sections.push('2. Propose fixes');
+  sections.push('3. Apply fixes with approval');
+
+  return sections.join('\n');
+}
+
+function encodeClaudeCommandCommit(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "commit"');
+  sections.push('description: "Prepare git commit"');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Prepare commit:');
+  sections.push('');
+  sections.push('1. Review staged changes');
+  sections.push('2. Generate commit message');
+  sections.push('3. Ensure proper format');
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Context 配置编码器
+// ============================================
+
+function encodeClaudeAlwaysIncludeJSON(schema) {
+  const config = {
+    description: "Files always included in Claude Code context",
+    files: [
+      "README.md",
+      "CLAUDE.md",
+      "package.json",
+      "tsconfig.json"
+    ],
+    watchFiles: [
+      ".claude/skills/*.md",
+      ".claude/commands/*.md"
+    ],
+    maxContextFiles: 20
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+// ============================================
+// 环境变量和脚本
+// ============================================
+
+function encodeClaudeEnvExample(schema) {
+  const lines = [];
+
+  lines.push('# Claude Code Environment Variables');
+  lines.push('');
+  lines.push('# Anthropic API Key (required)');
+  lines.push('ANTHROPIC_API_KEY=sk-ant-your-key-here');
+  lines.push('');
+
+  if (schema.tools.mcpServers?.length > 0) {
+    lines.push('# MCP Server Credentials');
+    lines.push('');
+    for (const mcp of schema.tools.mcpServers) {
+      if (mcp.config?.env) {
+        for (const [key, _] of Object.entries(mcp.config.env)) {
+          if (key.includes('KEY') || key.includes('TOKEN')) {
+            lines.push(`MCP_${mcp.name.toUpperCase()}_${key}=your-value-here`);
+          }
+        }
+      }
+    }
+    lines.push('');
+  }
+
+  lines.push('# Optional Settings');
+  lines.push('#CLAUDE_MODEL=claude-sonnet-4');
+  lines.push('#CLAUDE_MAX_TOKENS=4096');
+
+  return lines.join('\n');
+}
+
+function generateClaudeSetupScript(schema) {
+  const lines = [];
+
+  lines.push('#!/bin/bash');
+  lines.push('');
+  lines.push('# Claude Code Setup Script');
+  lines.push('# Generated by UAT Converter');
+  lines.push('');
+  lines.push('echo "Setting up Claude Code..."');
+  lines.push('');
+  lines.push('# Copy environment template');
+  lines.push('if [ ! -f .env ]; then');
+  lines.push('  cp .env.example .env');
+  lines.push('  echo "Created .env file - please add your API keys"');
+  lines.push('fi');
+  lines.push('');
+  lines.push('# Verify CLAUDE.md exists');
+  lines.push('if [ -f CLAUDE.md ]; then');
+  lines.push('  echo "CLAUDE.md found"');
+  lines.push('else');
+  lines.push('  echo "Warning: CLAUDE.md not found"');
+  lines.push('fi');
+  lines.push('');
+  lines.push('echo "Setup complete!"');
+
+  return lines.join('\n');
+}
+
+// ============================================
+// README 编码器
+// ============================================
+
+function encodeClaudeReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Claude Code Agent'} - Bundle`);
+  sections.push('');
+  sections.push('Claude Code Agent Bundle with Skills and Commands.');
+  sections.push('');
+
+  sections.push('## Contents');
+  sections.push('');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `CLAUDE.md` | Main Skill file (YAML + Instructions) |');
+  sections.push('| `.claude/settings.json` | Claude settings |');
+  sections.push('| `.claude/mcp_servers.json` | MCP server config |');
+  sections.push('| `.claude/skills/*.md` | Reusable Skills |');
+  sections.push('| `.claude/commands/*.md` | Slash Commands |');
+  sections.push('');
+
+  sections.push('## Usage');
+  sections.push('');
+  sections.push('```bash');
+  sections.push('# Start Claude Code');
+  sections.push('claude');
+  sections.push('');
+  sections.push('# Use slash commands');
+  sections.push('claude /test');
+  sections.push('claude /review');
+  sections.push('claude /fix');
+  sections.push('```');
+  sections.push('');
+
+  sections.push('## Skills');
+  sections.push('');
+  sections.push('- `review` - Code review');
+  sections.push('- `test` - Write tests');
+  sections.push('- `debug` - Debug issues');
+  sections.push('- `deploy` - Deploy preparation');
+  sections.push('');
+
+  sections.push('---');
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Claude Code Bundle 解析（导入）
+// ============================================
+
+async function parseClaudeCodeBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  // 1. 解析 manifest
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  // 2. 解析 CLAUDE.md
+  const claudeMDFile = zip.file("CLAUDE.md");
+  let claudeMD = '';
+  if (claudeMDFile) {
+    claudeMD = await claudeMDFile.async("string");
+  }
+
+  // 3. 解析 .claude/ 目录
+  const claudeFolder = zip.folder(".claude");
+
+  const settingsFile = claudeFolder.file("settings.json");
+  let settingsJSON = '';
+  if (settingsFile) {
+    settingsJSON = await settingsFile.async("string");
+  }
+
+  const mcpFile = claudeFolder.file("mcp_servers.json");
+  let mcpJSON = '';
+  if (mcpFile) {
+    mcpJSON = await mcpFile.async("string");
+  }
+
+  // 4. 解析 skills/
+  const skillsFolder = claudeFolder.folder("skills");
+  const skillsFiles = {};
+  for (const filename of ['review.md', 'test.md', 'deploy.md', 'debug.md']) {
+    const file = skillsFolder.file(filename);
+    if (file) {
+      skillsFiles[filename] = await file.async("string");
+    }
+  }
+
+  // 5. 构建 Schema
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'claude';
+  schema.meta.name = manifest.agent?.name || 'Claude Code Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  // 解析 CLAUDE.md
+  parseClaudeMDMain(claudeMD, schema);
+  parseClaudeSettingsJSON(settingsJSON, schema);
+  parseClaudeMCPJSON(mcpJSON, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  const rawFiles = { claudeMD, settingsJSON, mcpJSON, skillsFiles };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 从提取的文件直接解析 Claude Code 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseClaudeCodeBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'claude';
+
+  // 查找并解析 CLAUDE.md 主 Skill 文件
+  const claudeMD = findFileByPattern(extractedFiles, ['CLAUDE.md', 'claude.md']);
+  if (claudeMD) {
+    parseClaudeMDMain(claudeMD, schema);
+  }
+
+  // 查找并解析 .claude/settings.json
+  const settingsJSON = findFileByPattern(extractedFiles, [
+    '.claude/settings.json',
+    'claude/settings.json',
+    'settings.json'
+  ]);
+  if (settingsJSON) {
+    parseClaudeSettingsJSON(settingsJSON, schema);
+  }
+
+  // 查找并解析 .claude/mcp_servers.json
+  const mcpJSON = findFileByPattern(extractedFiles, [
+    '.claude/mcp_servers.json',
+    'claude/mcp_servers.json',
+    'mcp_servers.json',
+    'mcp.json'
+  ]);
+  if (mcpJSON) {
+    parseClaudeMCPJSON(mcpJSON, schema);
+  }
+
+  // 查找并解析 skills/*.md
+  const skillsFiles = {};
+  const skillNames = ['review.md', 'test.md', 'deploy.md', 'debug.md'];
+  for (const skillName of skillNames) {
+    const content = findFileByPattern(extractedFiles, [
+      '.claude/skills/' + skillName,
+      'claude/skills/' + skillName,
+      'skills/' + skillName,
+      skillName
+    ]);
+    if (content) {
+      skillsFiles[skillName] = content;
+    }
+  }
+
+  // 从 skills 文件提取额外内容
+  for (const [skillName, content] of Object.entries(skillsFiles)) {
+    if (content) {
+      const skillMatch = content.match(/---\s*\n([\s\S]*?)\n---/);
+      if (skillMatch) {
+        // 可提取 skill 元数据，但暂不扩展 Schema
+      }
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseClaudeMDMain(mdText, schema) {
+  if (!mdText) return;
+
+  // 解析 YAML Frontmatter
+  const yamlMatch = mdText.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (yamlMatch) {
+    const yamlHeader = yamlMatch[1];
+
+    // 提取 name
+    const nameMatch = yamlHeader.match(/name:\s*"([^"]+)"/);
+    if (nameMatch) {
+      schema.meta.name = nameMatch[1];
+    }
+
+    // 提取 model
+    const modelMatch = yamlHeader.match(/model:\s*"([^"]+)"/);
+    if (modelMatch) {
+      schema.modelConfig.model = modelMatch[1];
+    }
+
+    // 提取 maxTokens
+    const tokensMatch = yamlHeader.match(/maxTokens:\s*(\d+)/);
+    if (tokensMatch) {
+      schema.modelConfig.maxTokens = parseInt(tokensMatch[1]);
+    }
+
+    // 提取 temperature
+    const tempMatch = yamlHeader.match(/temperature:\s*([\d.]+)/);
+    if (tempMatch) {
+      schema.modelConfig.temperature = parseFloat(tempMatch[1]);
+    }
+  }
+
+  // 解析 Instructions
+  const instructionsMatch = mdText.match(/# Instructions\s*\n([\s\S]*?)(?=\n---|$)/i);
+  if (instructionsMatch) {
+    const instructions = instructionsMatch[1];
+
+    // 提取 Core Behavior
+    const coreMatch = instructions.match(/## Core Behavior\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (coreMatch) {
+      schema.identity.systemPrompt = coreMatch[1].trim();
+    }
+
+    // 提取 Constraints
+    const constraintsMatch = instructions.match(/## Constraints\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (constraintsMatch) {
+      const lines = constraintsMatch[1].split('\n');
+      for (const line of lines) {
+        if (line.trim().startsWith('-')) {
+          schema.identity.constraints.push(line.replace(/^-\s*/, '').trim());
+        }
+      }
+    }
+  }
+}
+
+function parseClaudeSettingsJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const settings = JSON.parse(jsonText);
+
+    if (settings.model?.default) {
+      schema.modelConfig.model = settings.model.default;
+    }
+
+    if (settings.context?.maxTokens) {
+      schema.modelConfig.maxTokens = settings.context.maxTokens;
+    }
+
+  } catch (e) {
+    console.warn('settings.json parse warning:', e.message);
+  }
+}
+
+function parseClaudeMCPJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const mcpConfig = JSON.parse(jsonText);
+
+    if (mcpConfig.mcpServers) {
+      for (const [name, config] of Object.entries(mcpConfig.mcpServers)) {
+        const mcp = UATCore.createEmptyMCPServer();
+        mcp.id = name;
+        mcp.name = name;
+        mcp.config = {
+          command: config.command || '',
+          args: config.args || [],
+          env: config.env || {}
+        };
+        mcp.enabled = !config.disabled;
+        schema.tools.mcpServers.push(mcp);
+      }
+    }
+
+  } catch (e) {
+    console.warn('mcp_servers.json parse warning:', e.message);
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Claude Code 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeClaudeToFiles(schema) {
+  return {
+    'CLAUDE.md': encodeClaudeMDMain(schema),
+    '.claude/settings.json': encodeClaudeSettingsJSON(schema),
+    '.claude/mcp_servers.json': encodeClaudeMCPJSON(schema),
+    '.claude/skills/review.md': encodeClaudeSkillReview(schema),
+    '.claude/skills/test.md': encodeClaudeSkillTest(schema),
+    '.claude/skills/deploy.md': encodeClaudeSkillDeploy(schema),
+    '.claude/skills/debug.md': encodeClaudeSkillDebug(schema),
+    '.claude/commands/test.md': encodeClaudeCommandTest(schema),
+    '.claude/commands/review.md': encodeClaudeCommandReview(schema),
+    '.claude/commands/fix.md': encodeClaudeCommandFix(schema),
+    '.claude/commands/commit.md': encodeClaudeCommandCommit(schema),
+    '.claude/always_include.json': encodeClaudeAlwaysIncludeJSON(schema),
+    '.env.example': encodeClaudeEnvExample(schema),
+    'README.md': encodeClaudeReadme(schema)
+  };
+}
+
+window.ClaudeCodeBundle = {
+  createClaudeCodeBundle,
+  parseClaudeCodeBundle,
+  parseClaudeCodeBundleFromFiles,
+  encodeClaudeMDMain,
+  encodeClaudeSettingsJSON,
+  encodeClaudeMCPJSON,
+  encodeClaudeSkillReview,
+  encodeClaudeSkillTest,
+  encodeClaudeSkillDeploy,
+  encodeClaudeSkillDebug,
+  encodeClaudeCommandTest,
+  encodeClaudeCommandReview,
+  encodeClaudeCommandFix,
+  encodeClaudeCommandCommit,
+  encodeClaudeAlwaysIncludeJSON,
+  encodeClaudeEnvExample,
+  encodeClaudeReadme,
+  encodeClaudeToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.ClaudeCodeBundle;
+}
+// Link global alias
+ClaudeCodeBundle = window.ClaudeCodeBundle;
+
+// ===== src/bundle/dify-bundle.js =====
+/**
+ * UAT Dify Bundle 管理器 - Dify Bundle Manager
+ * 专门处理 Dify AI Agent 的多文件配置包导入导出
+ *
+ * Dify 配置结构：
+ * 项目导出包/
+ * ├── dify.yml                  # 主DSL配置文件
+ * ├── workflow/
+ * │   ├── nodes.yml             # 工作流节点定义
+ * │   ├── edges.yml             # 节点连接关系
+ * │   └── variables.yml         # 流程变量
+ * ├── knowledge_base/
+ * │   ├── references.json       # 知识库ID引用
+ * │   └── README.md             # 知识库说明
+ * ├── prompts/
+ * │   ├── system_prompt.txt     # 系统提示词
+ * │   └── templates/            # 变量模板
+ * ├── tools/
+ * │   ├── custom_tools.yml      # 自定义工具
+ * │   └── api_tools.yml         # API工具配置
+ * ├── app_config/
+ * │   ├── ui_settings.json      # UI界面设置
+ * │   └── model_config.json     # 模型参数
+ * └── README.md
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Dify Bundle 创建（导出）
+// ============================================
+
+async function createDifyBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Dify-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainConfig: "dify.yml",
+      workflowDir: "workflow/",
+      knowledgeDir: "knowledge_base/",
+      promptsDir: "prompts/",
+      toolsDir: "tools/",
+      appConfigDir: "app_config/"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Dify Bundle"
+    },
+    notes: {
+      knowledgeBase: "知识库仅保留ID引用，需在Dify平台重新关联",
+      workflow: "工作流节点完整导出，可在Dify平台重建"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. dify.yml - 主DSL配置
+  const difyYML = encodeDifyYML(schema);
+  zip.file("dify.yml", difyYML);
+
+  // 3. workflow/ 目录
+  const workflowFolder = zip.folder("workflow");
+  workflowFolder.file("nodes.yml", encodeDifyNodesYML(schema));
+  workflowFolder.file("edges.yml", encodeDifyEdgesYML(schema));
+  workflowFolder.file("variables.yml", encodeDifyVariablesYML(schema));
+
+  // 4. knowledge_base/ 目录
+  const kbFolder = zip.folder("knowledge_base");
+  kbFolder.file("references.json", encodeDifyKBReferences(schema));
+  kbFolder.file("README.md", encodeDifyKBReadme(schema));
+
+  // 5. prompts/ 目录
+  const promptsFolder = zip.folder("prompts");
+  promptsFolder.file("system_prompt.txt", encodeDifySystemPrompt(schema));
+  const templatesFolder = promptsFolder.folder("templates");
+  templatesFolder.file("user_input.yml", encodeDifyUserInputTemplate(schema));
+
+  // 6. tools/ 目录
+  const toolsFolder = zip.folder("tools");
+  toolsFolder.file("custom_tools.yml", encodeDifyCustomTools(schema));
+  toolsFolder.file("api_tools.yml", encodeDifyAPITools(schema));
+
+  // 7. app_config/ 目录
+  const appConfigFolder = zip.folder("app_config");
+  appConfigFolder.file("ui_settings.json", encodeDifyUISettings(schema));
+  appConfigFolder.file("model_config.json", encodeDifyModelConfig(schema));
+
+  // 8. README.md
+  zip.file("README.md", encodeDifyReadme(schema));
+
+  // 9. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// Dify DSL 编码器
+// ============================================
+
+function encodeDifyYML(schema) {
+  const lines = [];
+
+  lines.push('# Dify Agent Configuration');
+  lines.push('# Generated by UAT Converter');
+  lines.push('');
+  lines.push('dify_version: "0.1"');
+  lines.push('');
+
+  // App 配置
+  lines.push('app:');
+  lines.push(`  name: "${schema.meta.name || 'Dify Agent'}"`);
+  lines.push(`  description: "${schema.meta.description || ''}"`);
+  lines.push('  mode: "workflow"');
+  lines.push('  icon: "🤖"');
+  lines.push('');
+
+  // Identity 扩展字段
+  if (schema.identity.role || schema.identity.personality || schema.identity.language) {
+    lines.push('identity:');
+    if (schema.identity.role) {
+      lines.push(`  role: "${schema.identity.role}"`);
+    }
+    if (schema.identity.personality) {
+      lines.push(`  personality: "${schema.identity.personality}"`);
+    }
+    if (schema.identity.language) {
+      lines.push(`  language: "${schema.identity.language}"`);
+    }
+    lines.push('');
+  }
+
+  // Model 配置
+  lines.push('model:');
+  const provider = extractDifyProvider(schema.modelConfig.model);
+  lines.push(`  provider: ${provider}`);
+  lines.push(`  name: "${schema.modelConfig.model}"`);
+  lines.push(`  temperature: ${schema.modelConfig.temperature || 0.7}`);
+  lines.push(`  max_tokens: ${schema.modelConfig.maxTokens || 4096}`);
+  lines.push('');
+
+  // Workflow 引用
+  lines.push('workflow:');
+  lines.push('  graph:');
+  lines.push('    nodes: "@workflow/nodes.yml"');
+  lines.push('    edges: "@workflow/edges.yml"');
+  lines.push('');
+
+  // Memory - 使用UATMemoryEncoder
+  if (schema.memory.memoryEntries?.length > 0) {
+    const memoryEncoder = getUATMemoryEncoder();
+    if (memoryEncoder) {
+      lines.push('# Memory Configuration');
+      lines.push(memoryEncoder.encodeMemoryEntriesToYAML(schema.memory.memoryEntries));
+    }
+  }
+
+  // Knowledge Base
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    lines.push('knowledge_base:');
+    lines.push('  enabled: true');
+    lines.push('  datasets: "@knowledge_base/references.json"');
+    lines.push('  retrieval:');
+    lines.push('    top_k: 5');
+    lines.push('    score_threshold: 0.5');
+    lines.push('');
+  }
+
+  // Tools
+  lines.push('tools:');
+  lines.push('  builtin: []');
+  lines.push('  custom: "@tools/custom_tools.yml"');
+  lines.push('');
+
+  // Skills encoding（使用YAML格式）
+  if (schema.skills?.skills?.length > 0) {
+    const skillsEncoder = getUATSkillsEncoder();
+    if (skillsEncoder) {
+      lines.push(skillsEncoder.encodeSkillsToDifyYAML(schema.skills));
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function extractDifyProvider(modelName) {
+  if (!modelName) return 'openai';
+  const lower = modelName.toLowerCase();
+  if (lower.includes('gpt')) return 'openai';
+  if (lower.includes('claude')) return 'anthropic';
+  if (lower.includes('gemini')) return 'google';
+  if (lower.includes('deepseek')) return 'deepseek';
+  return 'openai';
+}
+
+function encodeDifyNodesYML(schema) {
+  const lines = [];
+
+  lines.push('# Workflow Nodes Definition');
+  lines.push('');
+
+  // Start Node
+  lines.push('- id: "start_node"');
+  lines.push('  type: "start"');
+  lines.push('  data:');
+  lines.push('    title: "开始"');
+  lines.push('    variables:');
+  lines.push('      - name: "user_input"');
+  lines.push('        type: "string"');
+  lines.push('        required: true');
+  lines.push('');
+
+  // LLM Node
+  lines.push('- id: "llm_node"');
+  lines.push('  type: "llm"');
+  lines.push('  data:');
+  lines.push('    title: "AI推理"');
+  lines.push('    model:');
+  lines.push(`      provider: ${extractDifyProvider(schema.modelConfig.model)}`);
+  lines.push(`      name: "${schema.modelConfig.model}"`);
+  lines.push('    prompt_template: "@prompts/system_prompt.txt"');
+  lines.push('');
+
+  // Workflow Steps as Nodes
+  if (schema.workflow.steps?.length > 0) {
+    for (let i = 0; i < schema.workflow.steps.length; i++) {
+      const step = schema.workflow.steps[i];
+      lines.push(`- id: "step_${i}"`);
+      lines.push(`  type: "${step.type}"`);
+      lines.push('  data:');
+      lines.push(`    title: "${step.name}"`);
+      if (step.content) {
+        lines.push(`    content: "${step.content.substring(0, 200)}"`);
+      }
+      lines.push('');
+    }
+  }
+
+  // End Node
+  lines.push('- id: "end_node"');
+  lines.push('  type: "end"');
+  lines.push('  data:');
+  lines.push('    title: "结束"');
+  lines.push('    outputs:');
+  lines.push('      - name: "response"');
+  lines.push('        value_selector: "llm_node/text"');
+
+  return lines.join('\n');
+}
+
+function encodeDifyEdgesYML(schema) {
+  const lines = [];
+
+  lines.push('# Workflow Edges Definition');
+  lines.push('');
+
+  lines.push('- source: "start_node"');
+  lines.push('  target: "llm_node"');
+  lines.push('');
+
+  // Workflow Step Edges
+  if (schema.workflow.steps?.length > 0) {
+    for (let i = 0; i < schema.workflow.steps.length; i++) {
+      lines.push(`- source: "${i === 0 ? 'llm_node' : `step_${i - 1}`}"`);
+      lines.push(`  target: "step_${i}"`);
+      lines.push('');
+    }
+    lines.push(`- source: "step_${schema.workflow.steps.length - 1}"`);
+    lines.push('  target: "end_node"');
+  } else {
+    lines.push('- source: "llm_node"');
+    lines.push('  target: "end_node"');
+  }
+
+  return lines.join('\n');
+}
+
+function encodeDifyVariablesYML(schema) {
+  const lines = [];
+
+  lines.push('# Workflow Variables');
+  lines.push('');
+
+  if (schema.identity.promptVariables?.length > 0) {
+    for (const v of schema.identity.promptVariables) {
+      lines.push(`- name: "${v.name}"`);
+      lines.push(`  type: "${v.type || 'string'}"`);
+      lines.push(`  default: "${v.default || ''}"`);
+      lines.push('');
+    }
+  } else {
+    lines.push('# No custom variables defined');
+  }
+
+  return lines.join('\n');
+}
+
+function encodeDifyKBReferences(schema) {
+  const kbEncoder = getUATKnowledgeEncoder();
+
+  // 如果有knowledgeBaseContent，使用编码器完整编码
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      return kbEncoder.encodeKnowledgeToDifyYAML(kbContent);
+    }
+  }
+
+  // 否则仅保留引用
+  const kbConfig = {
+    datasets: [],
+    note: "知识库内容不会导出，仅保留ID引用，需要在Dify平台重新创建或关联"
+  };
+
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    for (const kb of schema.memory.knowledgeBaseRef) {
+      kbConfig.datasets.push({
+        id: kb.id,
+        name: kb.name,
+        type: kb.type || 'external',
+        description: kb.description || '',
+        retrieval_config: {
+          top_k: 5,
+          score_threshold: 0.5
+        }
+      });
+    }
+  }
+
+  return JSON.stringify(kbConfig, null, 2);
+}
+
+function encodeDifyKBReadme(schema) {
+  const sections = [];
+
+  sections.push('# Dify Knowledge Base');
+  sections.push('');
+  sections.push('知识库配置说明：');
+  sections.push('');
+  sections.push('- references.json 中仅包含知识库ID引用');
+  sections.push('- 知识库内容需要在Dify平台重新上传或关联');
+  sections.push('- 支持的知识库类型：文件上传、网页链接、API数据');
+  sections.push('');
+
+  return sections.join('\n');
+}
+
+function encodeDifySystemPrompt(schema) {
+  return schema.identity.systemPrompt || 'You are a helpful AI assistant.';
+}
+
+function encodeDifyUserInputTemplate(schema) {
+  const lines = [];
+
+  lines.push('name: "user_input_template"');
+  lines.push('variables:');
+  lines.push('  - name: "query"');
+  lines.push('    type: "string"');
+  lines.push('    description: "用户查询内容"');
+  lines.push('template: |');
+  lines.push('  用户问题: {{query}}');
+
+  return lines.join('\n');
+}
+
+function encodeDifyCustomTools(schema) {
+  const lines = [];
+
+  lines.push('# Dify Custom Tools');
+  lines.push('');
+
+  if (schema.tools.functions?.length > 0) {
+    for (const fn of schema.tools.functions) {
+      lines.push(`- name: "${fn.name}"`);
+      lines.push(`  description: "${fn.description || fn.name}"`);
+      lines.push('  type: "function"');
+      lines.push('');
+    }
+  } else {
+    lines.push('# No custom tools defined');
+  }
+
+  return lines.join('\n');
+}
+
+function encodeDifyAPITools(schema) {
+  const lines = [];
+
+  lines.push('# Dify API Tools');
+  lines.push('');
+
+  if (schema.tools.apiEndpoints?.length > 0) {
+    for (const api of schema.tools.apiEndpoints) {
+      lines.push(`- name: "${api.name}"`);
+      lines.push('  type: "http"');
+      lines.push('  config:');
+      lines.push(`    url: "${api.url}"`);
+      lines.push(`    method: "${api.method || 'GET'}"`);
+      lines.push('');
+    }
+  } else {
+    lines.push('# No API tools defined');
+  }
+
+  return lines.join('\n');
+}
+
+function encodeDifyUISettings(schema) {
+  const settings = {
+    display_name: schema.meta.name || 'Dify Agent',
+    icon: '🤖',
+    theme: 'light',
+    opening_statement: '你好，我是AI助手，有什么可以帮助你的？',
+    suggested_questions: ['帮我查询项目文档', '分析数据'],
+    input_placeholder: '输入你的问题...'
+  };
+
+  return JSON.stringify(settings, null, 2);
+}
+
+function encodeDifyModelConfig(schema) {
+  const config = {
+    provider: extractDifyProvider(schema.modelConfig.model),
+    model: schema.modelConfig.model || 'gpt-4',
+    parameters: {
+      temperature: schema.modelConfig.temperature || 0.7,
+      max_tokens: schema.modelConfig.maxTokens || 4096,
+      top_p: 1.0
+    }
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeDifyReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Dify Agent'} - Bundle`);
+  sections.push('');
+  sections.push('Dify Agent DSL Bundle');
+  sections.push('');
+
+  sections.push('## Contents');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `dify.yml` | Main DSL config |');
+  sections.push('| `workflow/nodes.yml` | Node definitions |');
+  sections.push('| `workflow/edges.yml` | Edge connections |');
+  sections.push('| `knowledge_base/` | KB references |');
+  sections.push('| `prompts/` | Prompt templates |');
+  sections.push('');
+
+  sections.push('## Import Steps');
+  sections.push('1. Upload to Dify platform');
+  sections.push('2. Re-associate knowledge bases');
+  sections.push('3. Configure API keys');
+  sections.push('');
+
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Dify Bundle 解析（导入）
+// ============================================
+
+async function parseDifyBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  const difyYMLFile = zip.file("dify.yml");
+  let difyYML = '';
+  if (difyYMLFile) {
+    difyYML = await difyYMLFile.async("string");
+  }
+
+  const nodesFile = zip.folder("workflow").file("nodes.yml");
+  let nodesYML = '';
+  if (nodesFile) {
+    nodesYML = await nodesFile.async("string");
+  }
+
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'dify';
+  schema.meta.name = manifest.agent?.name || 'Dify Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  parseDifyYML(difyYML, schema);
+  parseDifyNodesYML(nodesYML, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  return { schema, manifest, rawFiles: { difyYML, nodesYML } };
+}
+
+/**
+ * 从提取的文件直接解析 Dify 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseDifyBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'dify';
+
+  // 查找并解析 dify.yml 主配置文件
+  const difyYML = findFileByPattern(extractedFiles, ['dify.yml', 'dify.yaml']);
+  if (difyYML) {
+    parseDifyYML(difyYML, schema);
+  }
+
+  // 查找并解析 workflow/nodes.yml
+  const nodesYML = findFileByPattern(extractedFiles, [
+    'workflow/nodes.yml',
+    'workflow/nodes.yaml',
+    'nodes.yml'
+  ]);
+  if (nodesYML) {
+    parseDifyNodesYML(nodesYML, schema);
+  }
+
+  // 查找并解析 workflow/edges.yml
+  const edgesYML = findFileByPattern(extractedFiles, [
+    'workflow/edges.yml',
+    'workflow/edges.yaml',
+    'edges.yml'
+  ]);
+  // edges 暂不直接映射到 Schema
+
+  // 查找并解析 workflow/variables.yml
+  const variablesYML = findFileByPattern(extractedFiles, [
+    'workflow/variables.yml',
+    'workflow/variables.yaml',
+    'variables.yml'
+  ]);
+  if (variablesYML) {
+    try {
+      // 简单提取变量
+      const varMatches = variablesYML.matchAll(/- name:\s*"([^"]+)"/g);
+      for (const match of varMatches) {
+        const pv = {
+          name: match[1],
+          type: 'string',
+          default: '',
+          description: ''
+        };
+        schema.identity.promptVariables.push(pv);
+      }
+    } catch (e) {
+      console.warn('Dify variables parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 prompts/system_prompt.txt
+  const systemPrompt = findFileByPattern(extractedFiles, [
+    'prompts/system_prompt.txt',
+    'prompts/system_prompt.md',
+    'system_prompt.txt'
+  ]);
+  if (systemPrompt) {
+    schema.identity.systemPrompt = systemPrompt.trim();
+  }
+
+  // 查找并解析 knowledge_base/references.json
+  const kbJSON = findFileByPattern(extractedFiles, [
+    'knowledge_base/references.json',
+    'knowledge/references.json',
+    'references.json'
+  ]);
+  if (kbJSON) {
+    try {
+      const kbConfig = JSON.parse(kbJSON);
+      if (kbConfig.datasets?.length > 0) {
+        for (const ds of kbConfig.datasets) {
+          schema.memory.knowledgeBaseRef.push({
+            id: ds.id || '',
+            name: ds.name || '',
+            type: ds.type || 'external',
+            description: ds.description || ''
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Dify KB JSON parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 app_config/model_config.json
+  const modelConfigJSON = findFileByPattern(extractedFiles, [
+    'app_config/model_config.json',
+    'model_config.json',
+    'model.json'
+  ]);
+  if (modelConfigJSON) {
+    try {
+      const modelConfig = JSON.parse(modelConfigJSON);
+      if (modelConfig.model) {
+        schema.modelConfig.model = modelConfig.model;
+      }
+      if (modelConfig.parameters?.temperature) {
+        schema.modelConfig.temperature = modelConfig.parameters.temperature;
+      }
+      if (modelConfig.parameters?.max_tokens) {
+        schema.modelConfig.maxTokens = modelConfig.parameters.max_tokens;
+      }
+    } catch (e) {
+      console.warn('Dify model config parse warning:', e.message);
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseDifyYML(ymlText, schema) {
+  if (!ymlText) return;
+
+  const nameMatch = ymlText.match(/name:\s*"([^"]+)"/);
+  if (nameMatch) schema.meta.name = nameMatch[1];
+
+  const modelMatch = ymlText.match(/name:\s*"([^"]+)"/m);
+  if (modelMatch) schema.modelConfig.model = modelMatch[1];
+
+  const tempMatch = ymlText.match(/temperature:\s*([\d.]+)/);
+  if (tempMatch) schema.modelConfig.temperature = parseFloat(tempMatch[1]);
+}
+
+function parseDifyNodesYML(ymlText, schema) {
+  if (!ymlText) return;
+
+  const stepMatches = ymlText.matchAll(/- id: "step_\d+"\s*\n\s*type: "([^"]+)"/g);
+  for (const match of stepMatches) {
+    const step = UATCore.createEmptyWorkflowStep();
+    step.type = match[1];
+    schema.workflow.steps.push(step);
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Dify 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeDifyToFiles(schema) {
+  return {
+    'dify.yml': encodeDifyYML(schema),
+    'workflow/nodes.yml': encodeDifyNodesYML(schema),
+    'workflow/edges.yml': encodeDifyEdgesYML(schema),
+    'workflow/variables.yml': encodeDifyVariablesYML(schema),
+    'knowledge_base/references.json': encodeDifyKBReferences(schema),
+    'prompts/system_prompt.txt': encodeDifySystemPrompt(schema),
+    'tools/custom_tools.yml': encodeDifyCustomTools(schema),
+    'tools/api_tools.yml': encodeDifyAPITools(schema),
+    'app_config/ui_settings.json': encodeDifyUISettings(schema),
+    'app_config/model_config.json': encodeDifyModelConfig(schema),
+    'README.md': encodeDifyKBReadme(schema)
+  };
+}
+
+window.DifyBundle = {
+  createDifyBundle,
+  parseDifyBundle,
+  parseDifyBundleFromFiles,
+  extractDifyProvider,
+  encodeDifyYML,
+  encodeDifyNodesYML,
+  encodeDifyEdgesYML,
+  encodeDifyVariablesYML,
+  encodeDifyKBReferences,
+  encodeDifyKBReadme,
+  encodeDifySystemPrompt,
+  encodeDifyUserInputTemplate,
+  encodeDifyCustomTools,
+  encodeDifyAPITools,
+  encodeDifyUISettings,
+  encodeDifyModelConfig,
+  encodeDifyReadme,
+  encodeDifyToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.DifyBundle;
+}
+// Link global alias
+DifyBundle = window.DifyBundle;
+
+// ===== src/bundle/fastgpt-bundle.js =====
+/**
+ * UAT FastGPT Bundle 管理器 - FastGPT Bundle Manager
+ * 专门处理 FastGPT AI Agent 的 JSON 配置包导入导出
+ *
+ * FastGPT 配置结构：
+ * 项目导出包/
+ * ├── fastgpt.json              # 主配置JSON
+ * ├── workflow/
+ * │   ├── nodes.json            # 节点定义
+ * │   ├── edges.json            # 连接关系
+ * │   └── variables.json        # 流程变量
+ * ├── knowledge/
+ * │   ├── datasets.json         # 数据集引用
+ * │   └── retrieval_config.json # 检索参数
+ * ├── prompts/
+ * │   ├── system_prompt.json    # 系统提示词
+ * │   └── chat_config.json      # 对话配置
+ * ├── app/
+ * │   ├── appConfig.json        # 应用设置
+ * │   └── uiConfig.json         # UI界面
+ * ├── model/
+ * │   ├── modelConfig.json      # 主模型
+ * │   └── fallback.json         # 降级模型
+ * ├── .env.example
+ * └── README.md
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// FastGPT Bundle 创建（导出）
+// ============================================
+
+async function createFastGPTBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "FastGPT-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainConfig: "fastgpt.json",
+      workflowDir: "workflow/",
+      knowledgeDir: "knowledge/",
+      promptsDir: "prompts/",
+      appDir: "app/",
+      modelDir: "model/"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - FastGPT Bundle"
+    },
+    notes: {
+      knowledgeBase: "知识库仅保留ID引用，需在FastGPT平台重新关联",
+      workflow: "工作流节点完整导出，包含nodes/edges数组",
+      fallback: "降级模型链已配置"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. fastgpt.json - 主配置
+  const fastgptJSON = encodeFastGPTMainJSON(schema);
+  zip.file("fastgpt.json", fastgptJSON);
+
+  // 3. workflow/ 目录
+  const workflowFolder = zip.folder("workflow");
+  workflowFolder.file("nodes.json", encodeFastGPTNodesJSON(schema));
+  workflowFolder.file("edges.json", encodeFastGPTEdgesJSON(schema));
+  workflowFolder.file("variables.json", encodeFastGPTVariablesJSON(schema));
+
+  // 4. knowledge/ 目录
+  const knowledgeFolder = zip.folder("knowledge");
+  knowledgeFolder.file("datasets.json", encodeFastGPTDatasetsJSON(schema));
+  knowledgeFolder.file("retrieval_config.json", encodeFastGPTRetrievalConfig(schema));
+
+  // 5. prompts/ 目录
+  const promptsFolder = zip.folder("prompts");
+  promptsFolder.file("system_prompt.json", encodeFastGPTSystemPromptJSON(schema));
+  promptsFolder.file("chat_config.json", encodeFastGPTChatConfigJSON(schema));
+
+  // 6. app/ 目录
+  const appFolder = zip.folder("app");
+  appFolder.file("appConfig.json", encodeFastGPTAppConfigJSON(schema));
+  appFolder.file("uiConfig.json", encodeFastGPTUIConfigJSON(schema));
+
+  // 7. model/ 目录
+  const modelFolder = zip.folder("model");
+  modelFolder.file("modelConfig.json", encodeFastGPTModelConfigJSON(schema));
+  modelFolder.file("fallback.json", encodeFastGPTFallbackJSON(schema));
+
+  // 8. .env.example
+  const envExample = encodeFastGPTEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 9. README.md
+  zip.file("README.md", encodeFastGPTReadme(schema));
+
+  // 10. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// FastGPT JSON 编码器
+// ============================================
+
+function extractFastGPTProvider(modelName) {
+  if (!modelName) return 'openai';
+  const lower = modelName.toLowerCase();
+  if (lower.includes('gpt')) return 'openai';
+  if (lower.includes('claude')) return 'anthropic';
+  if (lower.includes('gemini')) return 'google';
+  if (lower.includes('deepseek')) return 'deepseek';
+  if (lower.includes('qwen')) return 'aliyun';
+  if (lower.includes('glm')) return 'zhipu';
+  return 'openai';
+}
+
+function encodeFastGPTMainJSON(schema) {
+  const memoryEncoder = getUATMemoryEncoder();
+  const skillsEncoder = getUATSkillsEncoder();
+
+  const config = {
+    version: "4.8",
+    appConfig: {
+      name: schema.meta.name || 'FastGPT Agent',
+      description: schema.meta.description || '',
+      type: "workflow",
+      icon: "🤖",
+      modules: []
+    },
+    chatConfig: {
+      systemPrompt: schema.identity.systemPrompt || 'You are a helpful AI assistant.',
+      welcomeText: '你好，我是FastGPT AI助手',
+      variables: schema.identity.promptVariables?.map(v => ({
+        key: v.name,
+        type: v.type || 'string',
+        required: v.required || false
+      })) || []
+    },
+    identity: {
+      role: schema.identity.role || '',
+      personality: schema.identity.personality || '',
+      language: schema.identity.language || 'zh-CN'
+    },
+    modelConfig: {
+      model: schema.modelConfig.model || 'gpt-4',
+      temperature: schema.modelConfig.temperature || 0.7,
+      maxTokens: schema.modelConfig.maxTokens || 4096,
+      provider: extractFastGPTProvider(schema.modelConfig.model)
+    },
+    workflow: {
+      nodes: "@workflow/nodes.json",
+      edges: "@workflow/edges.json"
+    }
+  };
+
+  // Memory encoding if memoryEntries present
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    config.memory = memoryEncoder.encodeMemoryEntriesToFastGPTFormat(schema.memory.memoryEntries);
+  }
+
+  // Skills encoding if skills present
+  if (schema.skills && skillsEncoder) {
+    config.skills = skillsEncoder.encodeSkillsToFastGPTJSON(schema.skills);
+  }
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeFastGPTNodesJSON(schema) {
+  const nodes = [];
+
+  // Start Node
+  nodes.push({
+    id: "node_start",
+    type: "start",
+    position: { x: 100, y: 100 },
+    data: {
+      title: "开始",
+      inputs: [
+        {
+          key: "userQuestion",
+          type: "string",
+          label: "用户问题",
+          required: true
+        }
+      ]
+    }
+  });
+
+  // Knowledge Search Node (if KB exists)
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    nodes.push({
+      id: "node_knowledge_search",
+      type: "knowledgeSearch",
+      position: { x: 300, y: 200 },
+      data: {
+        title: "知识库检索",
+        datasetIds: schema.memory.knowledgeBaseRef.map(kb => kb.id),
+        searchLimit: 5,
+        similarity: 0.5,
+        inputs: [{ key: "query", type: "string" }],
+        outputs: [{ key: "searchResult", type: "array" }]
+      }
+    });
+  }
+
+  // AI Chat Node
+  nodes.push({
+    id: "node_ai_chat",
+    type: "aiChat",
+    position: { x: 300, y: 100 },
+    data: {
+      title: "AI对话",
+      model: schema.modelConfig.model || 'gpt-4',
+      systemPrompt: "{{system_prompt}}",
+      temperature: schema.modelConfig.temperature || 0.7,
+      maxTokens: schema.modelConfig.maxTokens || 4096,
+      inputs: [
+        { key: "userQuestion", type: "string" },
+        { key: "history", type: "array" },
+        { key: "context", type: "string" }
+      ],
+      outputs: [{ key: "answer", type: "string" }]
+    }
+  });
+
+  // Workflow Steps as Nodes
+  if (schema.workflow.steps?.length > 0) {
+    for (let i = 0; i < schema.workflow.steps.length; i++) {
+      const step = schema.workflow.steps[i];
+      const nodeType = mapFastGPTNodeType(step.type);
+      nodes.push({
+        id: `node_step_${i}`,
+        type: nodeType,
+        position: { x: 500 + i * 200, y: 100 },
+        data: {
+          title: step.name,
+          inputs: [{ key: "input", type: "string" }],
+          outputs: [{ key: "output", type: "string" }],
+          content: step.content?.substring(0, 200) || ''
+        }
+      });
+    }
+  }
+
+  // End Node
+  nodes.push({
+    id: "node_end",
+    type: "end",
+    position: { x: 700, y: 100 },
+    data: {
+      title: "结束",
+      outputs: [{ key: "text", value: "{{node_ai_chat.answer}}" }]
+    }
+  });
+
+  return JSON.stringify({ nodes }, null, 2);
+}
+
+function mapFastGPTNodeType(stepType) {
+  const typeMap = {
+    'prompt': 'aiChat',
+    'task': 'codeRun',
+    'api': 'httpRequest',
+    'condition': 'ifElse',
+    'tool': 'tool',
+    'variable': 'variableUpdate'
+  };
+  return typeMap[stepType] || 'aiChat';
+}
+
+function encodeFastGPTEdgesJSON(schema) {
+  const edges = [];
+
+  // Start -> Knowledge Search (if KB exists)
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    edges.push({
+      source: "node_start",
+      target: "node_knowledge_search",
+      sourceHandle: "output",
+      targetHandle: "query"
+    });
+    edges.push({
+      source: "node_knowledge_search",
+      target: "node_ai_chat",
+      sourceHandle: "searchResult",
+      targetHandle: "context"
+    });
+  } else {
+    // Start -> AI Chat directly
+    edges.push({
+      source: "node_start",
+      target: "node_ai_chat",
+      sourceHandle: "output",
+      targetHandle: "userQuestion"
+    });
+  }
+
+  // Workflow Step Edges
+  if (schema.workflow.steps?.length > 0) {
+    edges.push({
+      source: "node_ai_chat",
+      target: "node_step_0",
+      sourceHandle: "answer",
+      targetHandle: "input"
+    });
+    for (let i = 1; i < schema.workflow.steps.length; i++) {
+      edges.push({
+        source: `node_step_${i - 1}`,
+        target: `node_step_${i}`,
+        sourceHandle: "output",
+        targetHandle: "input"
+      });
+    }
+    edges.push({
+      source: `node_step_${schema.workflow.steps.length - 1}`,
+      target: "node_end",
+      sourceHandle: "output",
+      targetHandle: "text"
+    });
+  } else {
+    edges.push({
+      source: "node_ai_chat",
+      target: "node_end",
+      sourceHandle: "answer",
+      targetHandle: "text"
+    });
+  }
+
+  return JSON.stringify({ edges }, null, 2);
+}
+
+function encodeFastGPTVariablesJSON(schema) {
+  const variables = {
+    globalVariables: [],
+    flowVariables: []
+  };
+
+  if (schema.identity.promptVariables?.length > 0) {
+    variables.globalVariables = schema.identity.promptVariables.map(v => ({
+      key: v.name,
+      type: v.type || 'string',
+      defaultValue: v.default || '',
+      description: v.description || ''
+    }));
+  }
+
+  return JSON.stringify(variables, null, 2);
+}
+
+function encodeFastGPTDatasetsJSON(schema) {
+  const kbEncoder = getUATKnowledgeEncoder();
+
+  // 如果有knowledgeBaseContent，使用编码器完整编码
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      return JSON.stringify(kbEncoder.encodeKnowledgeToFastGPTJSON(kbContent), null, 2);
+    }
+  }
+
+  // 否则仅保留引用
+  const datasets = {
+    datasets: [],
+    note: "知识库内容不会导出，仅保留ID引用，需要在FastGPT平台重新创建或关联"
+  };
+
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    datasets.datasets = schema.memory.knowledgeBaseRef.map(kb => ({
+      id: kb.id,
+      name: kb.name,
+      type: kb.type || 'external',
+      description: kb.description || '',
+      vectorModel: "text-embedding-3-small",
+      searchConfig: {
+        limit: 5,
+        similarity: 0.5,
+        mode: "embedding"
+      }
+    }));
+  }
+
+  return JSON.stringify(datasets, null, 2);
+}
+
+function encodeFastGPTRetrievalConfig(schema) {
+  const config = {
+    mode: "embedding",
+    limit: 5,
+    similarity: 0.5,
+    quoteTemplate: "{{searchResult}}",
+    emptyKnowledgePrompt: "知识库中没有找到相关内容，请直接回答用户问题。"
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeFastGPTSystemPromptJSON(schema) {
+  const promptConfig = {
+    systemPrompt: schema.identity.systemPrompt || 'You are a helpful AI assistant.',
+    quotePrompt: "从知识库检索到以下相关内容：\n{{searchResult}}\n\n请基于这些内容回答用户问题。",
+    emptyKnowledgePrompt: "知识库中没有找到相关内容，请直接回答用户问题。"
+  };
+
+  return JSON.stringify(promptConfig, null, 2);
+}
+
+function encodeFastGPTChatConfigJSON(schema) {
+  const config = {
+    welcomeText: '你好，我是FastGPT AI助手，有什么可以帮助你的？',
+    suggestedQuestions: ['查询项目文档', '分析数据', '生成报告'],
+    inputPlaceholder: '请输入你的问题...',
+    maxHistory: 20,
+    showSource: true
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeFastGPTAppConfigJSON(schema) {
+  const config = {
+    name: schema.meta.name || 'FastGPT Agent',
+    description: schema.meta.description || '',
+    type: "workflow",
+    icon: "🤖",
+    tags: schema.meta.tags || [],
+    version: "1.0"
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeFastGPTUIConfigJSON(schema) {
+  const config = {
+    name: schema.meta.name || 'FastGPT Agent',
+    avatar: '🤖',
+    intro: schema.meta.description || 'AI助手',
+    theme: 'light',
+    customCss: '',
+    showRunStatus: true,
+    showNodeDetail: false,
+    showHistory: true,
+    showKnowledgeSource: true
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeFastGPTModelConfigJSON(schema) {
+  const config = {
+    provider: extractFastGPTProvider(schema.modelConfig.model),
+    model: schema.modelConfig.model || 'gpt-4',
+    parameters: {
+      temperature: schema.modelConfig.temperature || 0.7,
+      maxTokens: schema.modelConfig.maxTokens || 4096,
+      topP: 1,
+      frequencyPenalty: 0,
+      presencePenalty: 0
+    },
+    contextWindow: 8192,
+    quoteTemplate: "{{searchResult}}",
+    aiChatModel: {
+      modelName: schema.modelConfig.model || 'gpt-4',
+      customModel: false
+    }
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeFastGPTFallbackJSON(schema) {
+  const fallback = {
+    fallbackChain: [
+      {
+        provider: "anthropic",
+        model: "claude-3-haiku"
+      },
+      {
+        provider: "deepseek",
+        model: "deepseek-chat"
+      }
+    ],
+    triggerConditions: {
+      errorCodes: ["rate_limit", "timeout"],
+      maxRetries: 3
+    }
+  };
+
+  return JSON.stringify(fallback, null, 2);
+}
+
+function encodeFastGPTEnvExample(schema) {
+  const provider = extractFastGPTProvider(schema.modelConfig.model);
+  const lines = [];
+
+  lines.push('# FastGPT Environment Variables');
+  lines.push('# Copy to .env and fill in your API keys');
+  lines.push('');
+
+  if (provider === 'openai') {
+    lines.push('OPENAI_API_KEY=sk-xxx');
+    lines.push('OPENAI_BASE_URL=https://api.openai.com/v1');
+  } else if (provider === 'anthropic') {
+    lines.push('ANTHROPIC_API_KEY=sk-xxx');
+  } else if (provider === 'deepseek') {
+    lines.push('DEEPSEEK_API_KEY=sk-xxx');
+    lines.push('DEEPSEEK_BASE_URL=https://api.deepseek.com/v1');
+  } else if (provider === 'aliyun') {
+    lines.push('ALIYUN_API_KEY=sk-xxx');
+  } else if (provider === 'zhipu') {
+    lines.push('ZHIPU_API_KEY=xxx');
+  }
+
+  lines.push('');
+  lines.push('# FastGPT Platform Config');
+  lines.push('FASTGPT_API_URL=https://fastgpt.in/api');
+  lines.push('FASTGPT_API_KEY=xxx');
+
+  return lines.join('\n');
+}
+
+function encodeFastGPTReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'FastGPT Agent'} - Bundle`);
+  sections.push('');
+  sections.push('FastGPT Agent JSON Workflow Bundle');
+  sections.push('');
+
+  sections.push('## Contents');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `fastgpt.json` | Main config |');
+  sections.push('| `workflow/nodes.json` | Node definitions |');
+  sections.push('| `workflow/edges.json` | Edge connections |');
+  sections.push('| `knowledge/` | Dataset references |');
+  sections.push('| `prompts/` | System prompt |');
+  sections.push('| `app/` | App/UI settings |');
+  sections.push('| `model/` | Model config + fallback |');
+  sections.push('');
+
+  sections.push('## Import Steps');
+  sections.push('1. Import to FastGPT platform');
+  sections.push('2. Re-associate knowledge datasets');
+  sections.push('3. Configure API keys in .env');
+  sections.push('4. Test workflow nodes');
+  sections.push('');
+
+  sections.push('## Node Types');
+  sections.push('- `start` - Entry point');
+  sections.push('- `aiChat` - LLM response');
+  sections.push('- `knowledgeSearch` - Vector retrieval');
+  sections.push('- `httpRequest` - API call');
+  sections.push('- `codeRun` - Code execution');
+  sections.push('- `ifElse` - Condition branch');
+  sections.push('- `end` - Output endpoint');
+  sections.push('');
+
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// FastGPT Bundle 解析（导入）
+// ============================================
+
+async function parseFastGPTBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  const fastgptFile = zip.file("fastgpt.json");
+  let fastgptJSON = '';
+  if (fastgptFile) {
+    fastgptJSON = await fastgptFile.async("string");
+  }
+
+  const nodesFile = zip.folder("workflow").file("nodes.json");
+  let nodesJSON = '';
+  if (nodesFile) {
+    nodesJSON = await nodesFile.async("string");
+  }
+
+  const edgesFile = zip.folder("workflow").file("edges.json");
+  let edgesJSON = '';
+  if (edgesFile) {
+    edgesJSON = await edgesFile.async("string");
+  }
+
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'fastgpt';
+  schema.meta.name = manifest.agent?.name || 'FastGPT Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  parseFastGPTMainJSON(fastgptJSON, schema);
+  parseFastGPTNodesJSON(nodesJSON, schema);
+  parseFastGPTEdgesJSON(edgesJSON, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  const rawFiles = { fastgptJSON, nodesJSON, edgesJSON };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 从提取的文件直接解析 FastGPT 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseFastGPTBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'fastgpt';
+
+  // 查找并解析 fastgpt.json 主配置文件
+  const fastgptJSON = findFileByPattern(extractedFiles, ['fastgpt.json', 'config.json']);
+  if (fastgptJSON) {
+    parseFastGPTMainJSON(fastgptJSON, schema);
+  }
+
+  // 查找并解析 workflow/nodes.json
+  const nodesJSON = findFileByPattern(extractedFiles, [
+    'workflow/nodes.json',
+    'nodes.json'
+  ]);
+  if (nodesJSON) {
+    parseFastGPTNodesJSON(nodesJSON, schema);
+  }
+
+  // 查找并解析 workflow/edges.json
+  const edgesJSON = findFileByPattern(extractedFiles, [
+    'workflow/edges.json',
+    'edges.json'
+  ]);
+  if (edgesJSON) {
+    parseFastGPTEdgesJSON(edgesJSON, schema);
+  }
+
+  // 查找并解析 workflow/variables.json
+  const variablesJSON = findFileByPattern(extractedFiles, [
+    'workflow/variables.json',
+    'variables.json'
+  ]);
+  if (variablesJSON) {
+    try {
+      const variables = JSON.parse(variablesJSON);
+      if (variables.globalVariables?.length > 0) {
+        for (const v of variables.globalVariables) {
+          schema.identity.promptVariables.push({
+            name: v.key || v.name,
+            type: v.type || 'string',
+            default: v.defaultValue || v.default || '',
+            description: v.description || ''
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('FastGPT variables parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 knowledge/datasets.json
+  const datasetsJSON = findFileByPattern(extractedFiles, [
+    'knowledge/datasets.json',
+    'knowledge_base/datasets.json',
+    'datasets.json'
+  ]);
+  if (datasetsJSON) {
+    try {
+      const datasets = JSON.parse(datasetsJSON);
+      if (datasets.datasets?.length > 0) {
+        for (const ds of datasets.datasets) {
+          schema.memory.knowledgeBaseRef.push({
+            id: ds.id || '',
+            name: ds.name || '',
+            type: ds.type || 'external',
+            description: ds.description || ''
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('FastGPT datasets parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 prompts/system_prompt.json
+  const systemPromptJSON = findFileByPattern(extractedFiles, [
+    'prompts/system_prompt.json',
+    'system_prompt.json'
+  ]);
+  if (systemPromptJSON) {
+    try {
+      const promptConfig = JSON.parse(systemPromptJSON);
+      if (promptConfig.systemPrompt) {
+        schema.identity.systemPrompt = promptConfig.systemPrompt;
+      }
+    } catch (e) {
+      console.warn('FastGPT system prompt parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 model/modelConfig.json
+  const modelConfigJSON = findFileByPattern(extractedFiles, [
+    'model/modelConfig.json',
+    'model_config.json',
+    'model.json'
+  ]);
+  if (modelConfigJSON) {
+    try {
+      const modelConfig = JSON.parse(modelConfigJSON);
+      if (modelConfig.model) {
+        schema.modelConfig.model = modelConfig.model;
+      }
+      if (modelConfig.parameters?.temperature) {
+        schema.modelConfig.temperature = modelConfig.parameters.temperature;
+      }
+      if (modelConfig.parameters?.maxTokens) {
+        schema.modelConfig.maxTokens = modelConfig.parameters.maxTokens;
+      }
+    } catch (e) {
+      console.warn('FastGPT model config parse warning:', e.message);
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseFastGPTMainJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const config = JSON.parse(jsonText);
+
+    if (config.appConfig?.name) {
+      schema.meta.name = config.appConfig.name;
+    }
+    if (config.appConfig?.description) {
+      schema.meta.description = config.appConfig.description;
+    }
+    if (config.chatConfig?.systemPrompt) {
+      schema.identity.systemPrompt = config.chatConfig.systemPrompt;
+    }
+    if (config.modelConfig?.model) {
+      schema.modelConfig.model = config.modelConfig.model;
+    }
+    if (config.modelConfig?.temperature) {
+      schema.modelConfig.temperature = config.modelConfig.temperature;
+    }
+    if (config.modelConfig?.maxTokens) {
+      schema.modelConfig.maxTokens = config.modelConfig.maxTokens;
+    }
+  } catch (e) {
+    console.warn('FastGPT main JSON parse warning:', e.message);
+  }
+}
+
+function parseFastGPTNodesJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const nodesConfig = JSON.parse(jsonText);
+
+    if (nodesConfig.nodes?.length > 0) {
+      for (const node of nodesConfig.nodes) {
+        if (node.type !== 'start' && node.type !== 'end' && node.type !== 'aiChat') {
+          const step = UATCore.createEmptyWorkflowStep();
+          step.stepId = node.id;
+          step.name = node.data?.title || node.id;
+          step.type = reverseMapFastGPTNodeType(node.type);
+          if (node.data?.content) {
+            step.content = node.data.content;
+          }
+          schema.workflow.steps.push(step);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('FastGPT nodes JSON parse warning:', e.message);
+  }
+}
+
+function reverseMapFastGPTNodeType(nodeType) {
+  const typeMap = {
+    'aiChat': 'prompt',
+    'codeRun': 'task',
+    'httpRequest': 'api',
+    'ifElse': 'condition',
+    'tool': 'tool',
+    'variableUpdate': 'variable',
+    'knowledgeSearch': 'knowledge'
+  };
+  return typeMap[nodeType] || 'task';
+}
+
+function parseFastGPTEdgesJSON(jsonText, schema) {
+  // Edges are implicitly handled through workflow.steps order
+  // This function can be extended for complex edge parsing
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 FastGPT 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeFastGPTToFiles(schema) {
+  return {
+    'fastgpt.json': encodeFastGPTMainJSON(schema),
+    'workflow/nodes.json': encodeFastGPTNodesJSON(schema),
+    'workflow/edges.json': encodeFastGPTEdgesJSON(schema),
+    'workflow/variables.json': encodeFastGPTVariablesJSON(schema),
+    'knowledge/datasets.json': encodeFastGPTDatasetsJSON(schema),
+    'knowledge/retrieval_config.json': encodeFastGPTRetrievalConfig(schema),
+    'prompts/system_prompt.json': encodeFastGPTSystemPromptJSON(schema),
+    'prompts/chat_config.json': encodeFastGPTChatConfigJSON(schema),
+    'app/appConfig.json': encodeFastGPTAppConfigJSON(schema),
+    'app/uiConfig.json': encodeFastGPTUIConfigJSON(schema),
+    'model/modelConfig.json': encodeFastGPTModelConfigJSON(schema),
+    'model/fallback.json': encodeFastGPTFallbackJSON(schema),
+    '.env.example': encodeFastGPTEnvExample(schema),
+    'README.md': encodeFastGPTReadme(schema)
+  };
+}
+
+window.FastGPTBundle = {
+  createFastGPTBundle,
+  parseFastGPTBundle,
+  parseFastGPTBundleFromFiles,
+  extractFastGPTProvider,
+  encodeFastGPTMainJSON,
+  encodeFastGPTNodesJSON,
+  encodeFastGPTEdgesJSON,
+  encodeFastGPTVariablesJSON,
+  encodeFastGPTDatasetsJSON,
+  encodeFastGPTRetrievalConfig,
+  encodeFastGPTSystemPromptJSON,
+  encodeFastGPTChatConfigJSON,
+  encodeFastGPTAppConfigJSON,
+  encodeFastGPTUIConfigJSON,
+  encodeFastGPTModelConfigJSON,
+  encodeFastGPTFallbackJSON,
+  encodeFastGPTEnvExample,
+  encodeFastGPTReadme,
+  encodeFastGPTToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.FastGPTBundle;
+}
+// Link global alias
+FastGPTBundle = window.FastGPTBundle;
+
+// ===== src/bundle/flowise-bundle.js =====
+/**
+ * UAT Flowise Bundle 管理器 - Flowise Bundle Manager
+ * 专门处理 Flowise AI Agent 的可视化节点配置包导入导出
+ *
+ * Flowise 配置结构：
+ * 项目导出包/
+ * ├── flowise.json              # Flow主配置
+ * ├── nodes/
+ * │   ├── node_configs.json     # 节点定义
+ * │   └── custom_nodes/         # 自定义节点
+ * ├── edges.json                # 连接关系
+ * ├── variables.json            # 流程变量
+ * ├── credentials/
+ * │   ├── credentials.json      # API凭据模板
+ * │   └── credential_types.json # 凭据类型定义
+ * ├── chains/
+ * │   ├── llm_chain.json        # LLM Chain
+ * │   └── retrieval_chain.json  # 检索 Chain
+ * ├── ui/
+ * │   ├── theme.json            # 主题设置
+ * │   └── layout.json           # 布局位置
+ * ├── .env.example
+ * └── README.md
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Flowise Bundle 创建（导出）
+// ============================================
+
+async function createFlowiseBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Flowise-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainConfig: "flowise.json",
+      nodesDir: "nodes/",
+      edgesFile: "edges.json",
+      variablesFile: "variables.json",
+      credentialsDir: "credentials/",
+      chainsDir: "chains/",
+      uiDir: "ui/"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Flowise Bundle"
+    },
+    notes: {
+      langchainEcosystem: "基于LangChain的可视化节点编排",
+      credentials: "凭据导出为模板，不含实际密钥",
+      vectorStore: "向量存储仅保留配置，需外部服务"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. flowise.json - 主配置
+  const flowiseJSON = encodeFlowiseMainJSON(schema);
+  zip.file("flowise.json", flowiseJSON);
+
+  // 3. nodes/ 目录
+  const nodesFolder = zip.folder("nodes");
+  nodesFolder.file("node_configs.json", encodeFlowiseNodeConfigsJSON(schema));
+  const customNodesFolder = nodesFolder.folder("custom_nodes");
+  customNodesFolder.file("custom_node1.json", encodeFlowiseCustomNodeJSON(schema));
+
+  // 4. edges.json
+  zip.file("edges.json", encodeFlowiseEdgesJSON(schema));
+
+  // 5. variables.json
+  zip.file("variables.json", encodeFlowiseVariablesJSON(schema));
+
+  // 6. credentials/ 目录
+  const credentialsFolder = zip.folder("credentials");
+  credentialsFolder.file("credentials.json", encodeFlowiseCredentialsJSON(schema));
+  credentialsFolder.file("credential_types.json", encodeFlowiseCredentialTypesJSON(schema));
+
+  // 7. chains/ 目录
+  const chainsFolder = zip.folder("chains");
+  chainsFolder.file("llm_chain.json", encodeFlowiseLLMChainJSON(schema));
+  chainsFolder.file("retrieval_chain.json", encodeFlowiseRetrievalChainJSON(schema));
+
+  // 8. ui/ 目录
+  const uiFolder = zip.folder("ui");
+  uiFolder.file("theme.json", encodeFlowiseThemeJSON(schema));
+  uiFolder.file("layout.json", encodeFlowiseLayoutJSON(schema));
+
+  // 9. .env.example
+  const envExample = encodeFlowiseEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 10. README.md
+  zip.file("README.md", encodeFlowiseReadme(schema));
+
+  // 11. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// Flowise 编码器
+// ============================================
+
+function extractFlowiseLLMType(modelName) {
+  if (!modelName) return 'OpenAI';
+  const lower = modelName.toLowerCase();
+  if (lower.includes('gpt')) return 'OpenAI';
+  if (lower.includes('claude')) return 'Anthropic';
+  if (lower.includes('gemini')) return 'Google';
+  if (lower.includes('deepseek')) return 'OpenAI'; // DeepSeek compatible with OpenAI API
+  return 'OpenAI';
+}
+
+function encodeFlowiseMainJSON(schema) {
+  const memoryEncoder = getUATMemoryEncoder();
+  const kbEncoder = getUATKnowledgeEncoder();
+  const skillsEncoder = getUATSkillsEncoder();
+
+  const config = {
+    name: schema.meta.name || 'Flowise Agent',
+    description: schema.meta.description || 'AI chatbot built with Flowise',
+    type: "ChatFlow",
+    flowId: `flow_${Date.now()}`,
+    flowName: "MainChatFlow",
+    identity: {
+      role: schema.identity.role || '',
+      personality: schema.identity.personality || '',
+      language: schema.identity.language || 'en-US'
+    },
+    nodes: "@nodes/node_configs.json",
+    edges: "@edges.json",
+    variables: "@variables.json",
+    credentials: "@credentials/credentials.json",
+    settings: {
+      chatflow: {
+        model: schema.modelConfig.model || 'gpt-4',
+        temperature: schema.modelConfig.temperature || 0.7,
+        maxTokens: schema.modelConfig.maxTokens || 4096
+      }
+    }
+  };
+
+  // Memory encoding if memoryEntries present
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    config.memory = memoryEncoder.encodeMemoryEntriesToFlowiseFormat(schema.memory.memoryEntries);
+  }
+
+  // Knowledge encoding if knowledgeBaseContent present
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    config.knowledge = kbEncoder.encodeKnowledgeToFlowiseJSON(schema.memory.knowledgeBaseContent);
+  }
+
+  // Skills encoding if skills present
+  if (schema.skills && skillsEncoder) {
+    config.skills = skillsEncoder.encodeSkillsToFlowiseJSON(schema.skills);
+  }
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeFlowiseNodeConfigsJSON(schema) {
+  const nodes = [];
+
+  // LLM Chain Node
+  nodes.push({
+    id: "node_llm",
+    type: "chainLLM",
+    position: { x: 100, y: 100 },
+    data: {
+      label: "LLM Chain",
+      type: "LLMChain",
+      inputs: {
+        modelName: schema.modelConfig.model || 'gpt-4',
+        temperature: schema.modelConfig.temperature || 0.7,
+        promptTemplate: {
+          type: "PromptTemplate",
+          template: schema.identity.systemPrompt || 'You are a helpful AI assistant.\n\nUser question: {question}',
+          inputVariables: ["question"]
+        }
+      },
+      outputs: {
+        text: "{{llm_output}}"
+      }
+    }
+  });
+
+  // Vector Store Node (if KB exists)
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    nodes.push({
+      id: "node_vector",
+      type: "vectorStoreRetriever",
+      position: { x: 300, y: 100 },
+      data: {
+        label: "向量检索",
+        type: "VectorStoreRetriever",
+        inputs: {
+          vectorStore: {
+            type: "Pinecone",
+            indexName: "knowledge_base",
+            namespace: "docs"
+          },
+          embedding: {
+            type: "OpenAIEmbeddings",
+            modelName: "text-embedding-3-small"
+          },
+          searchK: 4,
+          searchType: "similarity"
+        }
+      }
+    });
+  }
+
+  // Conversational Retrieval QA Node
+  nodes.push({
+    id: "node_qa",
+    type: "conversationalRetrievalQAChain",
+    position: { x: 500, y: 100 },
+    data: {
+      label: "对话检索QA",
+      type: "ConversationalRetrievalQAChain",
+      inputs: {
+        llm: "node_llm",
+        retriever: schema.memory.knowledgeBaseRef?.length > 0 ? "node_vector" : null,
+        returnSourceDocuments: true
+      }
+    }
+  });
+
+  // Tool Nodes
+  if (schema.tools.functions?.length > 0) {
+    for (let i = 0; i < schema.tools.functions.length; i++) {
+      const fn = schema.tools.functions[i];
+      nodes.push({
+        id: `node_tool_${i}`,
+        type: "CustomTool",
+        position: { x: 500 + i * 200, y: 200 },
+        data: {
+          label: fn.name,
+          type: "CustomTool",
+          inputs: {
+            name: fn.name,
+            description: fn.description || fn.name,
+            func: fn.code || ""
+          }
+        }
+      });
+    }
+  }
+
+  return JSON.stringify({ nodes }, null, 2);
+}
+
+function encodeFlowiseCustomNodeJSON(schema) {
+  const customNode = {
+    name: "CustomNode",
+    type: "CustomNode",
+    description: "Custom node for specific functionality",
+    inputs: [
+      { name: "input1", type: "string", required: true }
+    ],
+    outputs: [
+      { name: "output1", type: "string" }
+    ],
+    code: "// Custom node implementation\n// Add your logic here"
+  };
+
+  return JSON.stringify(customNode, null, 2);
+}
+
+function encodeFlowiseEdgesJSON(schema) {
+  const edges = [];
+
+  // LLM -> QA
+  edges.push({
+    source: "node_llm",
+    sourceHandle: "llm_output",
+    target: "node_qa",
+    targetHandle: "llm_input"
+  });
+
+  // Vector -> QA (if KB exists)
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    edges.push({
+      source: "node_vector",
+      sourceHandle: "retriever_output",
+      target: "node_qa",
+      targetHandle: "retriever_input"
+    });
+  }
+
+  // Tool edges
+  if (schema.tools.functions?.length > 0) {
+    for (let i = 0; i < schema.tools.functions.length; i++) {
+      edges.push({
+        source: "node_qa",
+        sourceHandle: "qa_output",
+        target: `node_tool_${i}`,
+        targetHandle: "tool_input"
+      });
+    }
+  }
+
+  return JSON.stringify({ edges }, null, 2);
+}
+
+function encodeFlowiseVariablesJSON(schema) {
+  const variables = {
+    globalVariables: [],
+    flowVariables: []
+  };
+
+  if (schema.identity.promptVariables?.length > 0) {
+    variables.globalVariables = schema.identity.promptVariables.map(v => ({
+      name: v.name,
+      type: v.type || 'string',
+      defaultValue: v.default || '',
+      description: v.description || ''
+    }));
+  }
+
+  return JSON.stringify(variables, null, 2);
+}
+
+function encodeFlowiseCredentialsJSON(schema) {
+  const credentials = {
+    credentialTypes: [
+      {
+        name: "openAiApi",
+        type: "OpenAI",
+        requiredParams: ["apiKey"],
+        apiKey: "$OPENAI_API_KEY"
+      },
+      {
+        name: "anthropicApi",
+        type: "Anthropic",
+        requiredParams: ["apiKey"],
+        apiKey: "$ANTHROPIC_API_KEY"
+      },
+      {
+        name: "pineconeApi",
+        type: "Pinecone",
+        requiredParams: ["apiKey", "environment", "indexName"],
+        apiKey: "$PINECONE_API_KEY",
+        environment: "$PINECONE_ENVIRONMENT"
+      }
+    ],
+    note: "Replace $ENV_VAR with actual values in .env file"
+  };
+
+  return JSON.stringify(credentials, null, 2);
+}
+
+function encodeFlowiseCredentialTypesJSON(schema) {
+  const types = {
+    types: [
+      {
+        name: "OpenAI",
+        category: "LLM",
+        fields: [
+          { name: "apiKey", type: "password", required: true },
+          { name: "baseUrl", type: "string", required: false }
+        ]
+      },
+      {
+        name: "Anthropic",
+        category: "LLM",
+        fields: [
+          { name: "apiKey", type: "password", required: true }
+        ]
+      },
+      {
+        name: "Pinecone",
+        category: "VectorStore",
+        fields: [
+          { name: "apiKey", type: "password", required: true },
+          { name: "environment", type: "string", required: true },
+          { name: "indexName", type: "string", required: true }
+        ]
+      },
+      {
+        name: "Weaviate",
+        category: "VectorStore",
+        fields: [
+          { name: "url", type: "string", required: true },
+          { name: "apiKey", type: "password", required: false }
+        ]
+      }
+    ]
+  };
+
+  return JSON.stringify(types, null, 2);
+}
+
+function encodeFlowiseLLMChainJSON(schema) {
+  const chain = {
+    name: "LLMChain",
+    type: "LLMChain",
+    config: {
+      llm: {
+        type: extractFlowiseLLMType(schema.modelConfig.model),
+        modelName: schema.modelConfig.model || 'gpt-4',
+        temperature: schema.modelConfig.temperature || 0.7,
+        maxTokens: schema.modelConfig.maxTokens || 4096
+      },
+      prompt: {
+        type: "PromptTemplate",
+        template: schema.identity.systemPrompt || 'You are a helpful AI assistant.\n\nTask: {task}\n\nContext: {context}',
+        inputVariables: ["task", "context"]
+      },
+      memory: {
+        type: "BufferMemory",
+        memoryKey: "chat_history",
+        maxTokens: 2000
+      }
+    }
+  };
+
+  return JSON.stringify(chain, null, 2);
+}
+
+function encodeFlowiseRetrievalChainJSON(schema) {
+  const chain = {
+    name: "RetrievalChain",
+    type: "ConversationalRetrievalQAChain",
+    config: {
+      llm: "{{llm_chain}}",
+      retriever: {
+        type: "VectorStoreRetriever",
+        vectorStore: {
+          type: "Pinecone",
+          config: {
+            indexName: "knowledge_base",
+            namespace: "docs"
+          }
+        },
+        searchType: "similarity",
+        searchK: 4
+      },
+      returnSourceDocuments: true,
+      questionGeneratorChain: {
+        type: "LLMChain",
+        prompt: "Based on the following conversation and follow-up question, rewrite the follow-up question to be a standalone question.\n\nChat History: {chat_history}\nFollow-up Question: {question}"
+      }
+    }
+  };
+
+  return JSON.stringify(chain, null, 2);
+}
+
+function encodeFlowiseThemeJSON(schema) {
+  const theme = {
+    theme: "light",
+    colors: {
+      primary: "#1890ff",
+      background: "#ffffff",
+      nodeDefault: "#f5f5f5",
+      nodeSelected: "#e6f7ff"
+    },
+    nodeStyles: {
+      chain: { color: "#52c41a", icon: "🔗" },
+      llm: { color: "#1890ff", icon: "🤖" },
+      tool: { color: "#faad14", icon: "🔧" },
+      vector: { color: "#722ed1", icon: "📚" },
+      custom: { color: "#eb2f96", icon: "⚙️" }
+    }
+  };
+
+  return JSON.stringify(theme, null, 2);
+}
+
+function encodeFlowiseLayoutJSON(schema) {
+  const positions = [
+    { nodeId: "node_llm", x: 100, y: 100 },
+    { nodeId: "node_qa", x: 500, y: 100 }
+  ];
+
+  if (schema.memory.knowledgeBaseRef?.length > 0) {
+    positions.push({ nodeId: "node_vector", x: 300, y: 100 });
+  }
+
+  if (schema.tools.functions?.length > 0) {
+    for (let i = 0; i < schema.tools.functions.length; i++) {
+      positions.push({ nodeId: `node_tool_${i}`, x: 500 + i * 200, y: 200 });
+    }
+  }
+
+  const layout = {
+    positions,
+    zoom: 1,
+    viewport: { x: 0, y: 0 }
+  };
+
+  return JSON.stringify(layout, null, 2);
+}
+
+function encodeFlowiseEnvExample(schema) {
+  const lines = [];
+
+  lines.push('# Flowise Environment Variables');
+  lines.push('# Copy to .env and fill in your API keys');
+  lines.push('');
+
+  lines.push('# OpenAI API');
+  lines.push('OPENAI_API_KEY=sk-xxx');
+  lines.push('');
+
+  lines.push('# Anthropic API (optional)');
+  lines.push('ANTHROPIC_API_KEY=sk-xxx');
+  lines.push('');
+
+  lines.push('# Pinecone Vector Store');
+  lines.push('PINECONE_API_KEY=xxx');
+  lines.push('PINECONE_ENVIRONMENT=us-east-1');
+  lines.push('PINECONE_INDEX_NAME=knowledge_base');
+  lines.push('');
+
+  lines.push('# Flowise Server');
+  lines.push('FLOWISE_PORT=3000');
+  lines.push('FLOWISE_USERNAME=admin');
+  lines.push('FLOWISE_PASSWORD=password');
+
+  return lines.join('\n');
+}
+
+function encodeFlowiseReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Flowise Agent'} - Bundle`);
+  sections.push('');
+  sections.push('Flowise Visual LangChain Flow Bundle');
+  sections.push('');
+
+  sections.push('## Contents');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `flowise.json` | Main flow config |');
+  sections.push('| `nodes/node_configs.json` | Node definitions |');
+  sections.push('| `edges.json` | Node connections |');
+  sections.push('| `credentials/` | API credentials templates |');
+  sections.push('| `chains/` | Chain configurations |');
+  sections.push('| `ui/` | Theme and layout |');
+  sections.push('');
+
+  sections.push('## Import Steps');
+  sections.push('1. Import to Flowise platform');
+  sections.push('2. Configure credentials in Settings');
+  sections.push('3. Fill in .env file');
+  sections.push('4. Configure vector store if needed');
+  sections.push('5. Test flow execution');
+  sections.push('');
+
+  sections.push('## Node Types');
+  sections.push('- `LLMChain` - LLM response chain');
+  sections.push('- `VectorStoreRetriever` - Vector search');
+  sections.push('- `ConversationalRetrievalQAChain` - QA chain');
+  sections.push('- `CustomTool` - Custom tools');
+  sections.push('');
+
+  sections.push('## LangChain Components');
+  sections.push('- OpenAI / Anthropic LLMs');
+  sections.push('- Pinecone / Weaviate / Chroma vectors');
+  sections.push('- BufferMemory / ConversationMemory');
+  sections.push('');
+
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Flowise Bundle 解析（导入）
+// ============================================
+
+async function parseFlowiseBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  const flowiseFile = zip.file("flowise.json");
+  let flowiseJSON = '';
+  if (flowiseFile) {
+    flowiseJSON = await flowiseFile.async("string");
+  }
+
+  const nodesFile = zip.folder("nodes").file("node_configs.json");
+  let nodesJSON = '';
+  if (nodesFile) {
+    nodesJSON = await nodesFile.async("string");
+  }
+
+  const edgesFile = zip.file("edges.json");
+  let edgesJSON = '';
+  if (edgesFile) {
+    edgesJSON = await edgesFile.async("string");
+  }
+
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'flowise';
+  schema.meta.name = manifest.agent?.name || 'Flowise Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  parseFlowiseMainJSON(flowiseJSON, schema);
+  parseFlowiseNodesJSON(nodesJSON, schema);
+  parseFlowiseEdgesJSON(edgesJSON, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  const rawFiles = { flowiseJSON, nodesJSON, edgesJSON };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 从提取的文件直接解析 Flowise 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseFlowiseBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'flowise';
+
+  // 查找并解析 flowise.json 主配置文件
+  const flowiseJSON = findFileByPattern(extractedFiles, ['flowise.json', 'config.json']);
+  if (flowiseJSON) {
+    parseFlowiseMainJSON(flowiseJSON, schema);
+  }
+
+  // 查找并解析 nodes/node_configs.json
+  const nodesJSON = findFileByPattern(extractedFiles, [
+    'nodes/node_configs.json',
+    'node_configs.json',
+    'nodes.json'
+  ]);
+  if (nodesJSON) {
+    parseFlowiseNodesJSON(nodesJSON, schema);
+  }
+
+  // 查找并解析 edges.json
+  const edgesJSON = findFileByPattern(extractedFiles, ['edges.json']);
+  if (edgesJSON) {
+    parseFlowiseEdgesJSON(edgesJSON, schema);
+  }
+
+  // 查找并解析 variables.json
+  const variablesJSON = findFileByPattern(extractedFiles, ['variables.json']);
+  if (variablesJSON) {
+    try {
+      const variables = JSON.parse(variablesJSON);
+      if (variables.globalVariables?.length > 0) {
+        for (const v of variables.globalVariables) {
+          schema.identity.promptVariables.push({
+            name: v.name,
+            type: v.type || 'string',
+            default: v.defaultValue || '',
+            description: v.description || ''
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Flowise variables parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 chains/llm_chain.json
+  const llmChainJSON = findFileByPattern(extractedFiles, [
+    'chains/llm_chain.json',
+    'llm_chain.json'
+  ]);
+  if (llmChainJSON) {
+    try {
+      const chain = JSON.parse(llmChainJSON);
+      if (chain.config?.llm?.modelName) {
+        schema.modelConfig.model = chain.config.llm.modelName;
+      }
+      if (chain.config?.llm?.temperature) {
+        schema.modelConfig.temperature = chain.config.llm.temperature;
+      }
+      if (chain.config?.llm?.maxTokens) {
+        schema.modelConfig.maxTokens = chain.config.llm.maxTokens;
+      }
+      if (chain.config?.prompt?.template) {
+        schema.identity.systemPrompt = chain.config.prompt.template;
+      }
+    } catch (e) {
+      console.warn('Flowise LLM chain parse warning:', e.message);
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseFlowiseMainJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const config = JSON.parse(jsonText);
+
+    if (config.name) {
+      schema.meta.name = config.name;
+    }
+    if (config.description) {
+      schema.meta.description = config.description;
+    }
+    if (config.settings?.chatflow?.model) {
+      schema.modelConfig.model = config.settings.chatflow.model;
+    }
+    if (config.settings?.chatflow?.temperature) {
+      schema.modelConfig.temperature = config.settings.chatflow.temperature;
+    }
+    if (config.settings?.chatflow?.maxTokens) {
+      schema.modelConfig.maxTokens = config.settings.chatflow.maxTokens;
+    }
+  } catch (e) {
+    console.warn('Flowise main JSON parse warning:', e.message);
+  }
+}
+
+function parseFlowiseNodesJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const nodesConfig = JSON.parse(jsonText);
+
+    if (nodesConfig.nodes?.length > 0) {
+      for (const node of nodesConfig.nodes) {
+        // Extract system prompt from LLMChain node
+        if (node.type === 'chainLLM' && node.data?.inputs?.promptTemplate?.template) {
+          schema.identity.systemPrompt = node.data.inputs.promptTemplate.template;
+        }
+
+        // Add custom tools
+        if (node.type === 'CustomTool') {
+          const fn = {
+            name: node.data?.label || node.id,
+            description: node.data?.inputs?.description || '',
+            code: node.data?.inputs?.func || ''
+          };
+          schema.tools.functions.push(fn);
+        }
+
+        // Map other nodes to workflow steps
+        if (node.type !== 'chainLLM' && node.type !== 'CustomTool') {
+          const step = UATCore.createEmptyWorkflowStep();
+          step.stepId = node.id;
+          step.name = node.data?.label || node.id;
+          step.type = mapFlowiseNodeTypeToStep(node.type);
+          schema.workflow.steps.push(step);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Flowise nodes JSON parse warning:', e.message);
+  }
+}
+
+function mapFlowiseNodeTypeToStep(nodeType) {
+  const typeMap = {
+    'vectorStoreRetriever': 'knowledge',
+    'conversationalRetrievalQAChain': 'qa',
+    'httpRequest': 'api',
+    'code': 'code',
+    'tool': 'tool'
+  };
+  return typeMap[nodeType] || 'task';
+}
+
+function parseFlowiseEdgesJSON(jsonText, schema) {
+  // Edges are implicitly handled through workflow.steps order
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Flowise 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeFlowiseToFiles(schema) {
+  return {
+    'flowise.json': encodeFlowiseMainJSON(schema),
+    'nodes/node_configs.json': encodeFlowiseNodeConfigsJSON(schema),
+    'nodes/custom_node.json': encodeFlowiseCustomNodeJSON(schema),
+    'edges.json': encodeFlowiseEdgesJSON(schema),
+    'variables.json': encodeFlowiseVariablesJSON(schema),
+    'credentials.json': encodeFlowiseCredentialsJSON(schema),
+    'credentials/types.json': encodeFlowiseCredentialTypesJSON(schema),
+    'chains/llm_chain.json': encodeFlowiseLLMChainJSON(schema),
+    'chains/retrieval_chain.json': encodeFlowiseRetrievalChainJSON(schema),
+    'ui/theme.json': encodeFlowiseThemeJSON(schema),
+    'ui/layout.json': encodeFlowiseLayoutJSON(schema),
+    '.env.example': encodeFlowiseEnvExample(schema),
+    'README.md': encodeFlowiseReadme(schema)
+  };
+}
+
+window.FlowiseBundle = {
+  createFlowiseBundle,
+  parseFlowiseBundle,
+  parseFlowiseBundleFromFiles,
+  extractFlowiseLLMType,
+  encodeFlowiseMainJSON,
+  encodeFlowiseNodeConfigsJSON,
+  encodeFlowiseCustomNodeJSON,
+  encodeFlowiseEdgesJSON,
+  encodeFlowiseVariablesJSON,
+  encodeFlowiseCredentialsJSON,
+  encodeFlowiseCredentialTypesJSON,
+  encodeFlowiseLLMChainJSON,
+  encodeFlowiseRetrievalChainJSON,
+  encodeFlowiseThemeJSON,
+  encodeFlowiseLayoutJSON,
+  encodeFlowiseEnvExample,
+  encodeFlowiseReadme,
+  encodeFlowiseToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.FlowiseBundle;
+}
+// Link global alias
+FlowiseBundle = window.FlowiseBundle;
+
+// ===== src/bundle/copilot-bundle.js =====
+/**
+ * UAT GitHub Copilot Bundle 管理器 - GitHub Copilot Bundle Manager
+ * 专门处理 GitHub Copilot Agent 的配置包导入导出
+ *
+ * GitHub Copilot 配置结构：
+ * 项目根目录/
+ * ├── .github/
+ * │   ├── copilot-instructions.md   # 主指令文件（最高优先级）
+ * │   └── prompts/                  # 自定义提示词目录
+ * ├── .vscode/
+ * │   ├── settings.json             # VSCode设置
+ * │   └── extensions.json           # 扩展推荐
+ * ├── .copilotignore                # 文件排除
+ * ├── vscode-copilot-settings.json  # Copilot专用设置
+ * └── README.md
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// GitHub Copilot Bundle 创建（导出）
+// ============================================
+
+async function createCopilotBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "GitHub-Copilot-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainInstructions: ".github/copilot-instructions.md",
+      promptsDir: ".github/prompts/",
+      vscodeDir: ".vscode/"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - GitHub Copilot Bundle"
+    },
+    notes: {
+      vscodeNative: "VSCode原生集成AI助手",
+      githubEcosystem: "GitHub生态系统深度集成",
+      noMCP: "不支持MCP外部工具扩展"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. .github/ 目录
+  const githubFolder = zip.folder(".github");
+  githubFolder.file("copilot-instructions.md", encodeCopilotInstructionsMD(schema));
+
+  // 2.1 .github/prompts/ 目录
+  const promptsFolder = githubFolder.folder("prompts");
+  promptsFolder.file("code-generation.md", encodeCopilotPromptCodeGeneration(schema));
+  promptsFolder.file("review.md", encodeCopilotPromptReview(schema));
+  promptsFolder.file("test.md", encodeCopilotPromptTest(schema));
+  promptsFolder.file("refactor.md", encodeCopilotPromptRefactor(schema));
+
+  // 3. .vscode/ 目录
+  const vscodeFolder = zip.folder(".vscode");
+  vscodeFolder.file("settings.json", encodeCopilotVSCodeSettings(schema));
+  vscodeFolder.file("extensions.json", encodeCopilotVSCodeExtensions(schema));
+
+  // 4. .copilotignore
+  const copilotignore = encodeCopilotIgnore(schema);
+  zip.file(".copilotignore", copilotignore);
+
+  // 5. vscode-copilot-settings.json
+  const copilotSettings = encodeCopilotSettingsJSON(schema);
+  zip.file("vscode-copilot-settings.json", copilotSettings);
+
+  // 6. README.md
+  zip.file("README.md", encodeCopilotReadme(schema));
+
+  // 7. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// GitHub Copilot 编码器
+// ============================================
+
+function encodeCopilotInstructionsMD(schema) {
+  const sections = [];
+
+  sections.push('# GitHub Copilot Instructions');
+  sections.push('');
+  sections.push('> Highest priority instruction file for GitHub Copilot.');
+  sections.push('');
+
+  // Project Overview
+  sections.push('## Project Overview');
+  sections.push(`- **Name**: ${schema.meta.name || 'Copilot Project'}`);
+  sections.push(`- **Description**: ${schema.meta.description || 'AI-assisted development project'}`);
+  sections.push('- **Type**: General Application');
+  sections.push('');
+
+  // Role 定位
+  if (schema.identity.role) {
+    sections.push('## Role');
+    sections.push('');
+    sections.push(`You are acting as: ${schema.identity.role}`);
+    sections.push('');
+  }
+
+  // Personality 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(`Communication style: ${schema.identity.personality}`);
+    sections.push('');
+  }
+
+  // Language 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push(`- Respond in ${langDisplay} unless specified otherwise`);
+    sections.push('');
+  }
+
+  // Coding Style
+  sections.push('## Coding Style');
+  sections.push('- Use TypeScript strict mode');
+  sections.push('- Prefer modern ES modules syntax');
+  sections.push('- Follow consistent naming conventions');
+  sections.push('- Add proper type annotations');
+  sections.push('');
+
+  // Code Generation Rules
+  sections.push('## Code Generation Rules');
+  if (schema.identity.outputRules?.length > 0) {
+    for (const rule of schema.identity.outputRules) {
+      sections.push(`- ${rule}`);
+    }
+  } else {
+    sections.push('- Always add type annotations');
+    sections.push('- Use meaningful variable names');
+    sections.push('- Add comments for complex logic');
+    sections.push('- Handle errors gracefully');
+  }
+  sections.push('');
+
+  // Constraints
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Constraints');
+    sections.push('');
+    sections.push('> These rules must NEVER be violated:');
+    sections.push('');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // Memory encoding（使用列表格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToCopilotInstructions(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码（使用列表格式）
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push(kbEncoder.encodeKnowledgeToList(kbContent));
+    }
+  }
+
+  // 技能编码（使用列表格式）
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToCopilotInstructions(schema.skills));
+  }
+
+  // Testing Requirements
+  sections.push('## Testing Requirements');
+  sections.push('- Write unit tests for critical functions');
+  sections.push('- Use appropriate testing frameworks');
+  sections.push('- Aim for good code coverage');
+  sections.push('');
+
+  // Review Guidelines
+  sections.push('## Review Guidelines');
+  sections.push('- Check for potential security issues');
+  sections.push('- Verify type safety');
+  sections.push('- Ensure code readability');
+  sections.push('- Review error handling');
+  sections.push('');
+
+  // Output Format
+  sections.push('## Output Format');
+  sections.push('- Use Markdown for explanations');
+  sections.push('- Provide code snippets with comments');
+  sections.push('- Explain complex logic step-by-step');
+  sections.push('');
+
+  // System Prompt (if present)
+  if (schema.identity.systemPrompt) {
+    sections.push('## Additional Instructions');
+    sections.push('');
+    sections.push(schema.identity.systemPrompt);
+    sections.push('');
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+function encodeCopilotPromptCodeGeneration(schema) {
+  const sections = [];
+
+  sections.push('# Code Generation Prompt');
+  sections.push('');
+  sections.push('When generating code for this project:');
+  sections.push('');
+  sections.push('1. Follow the existing code patterns');
+  sections.push('2. Use proper types and annotations');
+  sections.push('3. Include necessary imports');
+  sections.push('4. Add error handling');
+  sections.push('5. Write accompanying tests');
+  sections.push('');
+  sections.push('Template:');
+  sections.push('');
+  sections.push('```typescript');
+  sections.push('/**');
+  sections.push(' * [Function description]');
+  sections.push(' * @param paramName - Parameter description');
+  sections.push(' * @returns Return value description');
+  sections.push(' */');
+  sections.push('export function functionName(paramName: Type): ReturnType {');
+  sections.push('  // Implementation');
+  sections.push('}');
+  sections.push('```');
+
+  return sections.join('\n');
+}
+
+function encodeCopilotPromptReview(schema) {
+  const sections = [];
+
+  sections.push('# Code Review Prompt');
+  sections.push('');
+  sections.push('When reviewing code changes:');
+  sections.push('');
+  sections.push('1. Check for:');
+  sections.push('   - Type safety');
+  sections.push('   - Error handling');
+  sections.push('   - Performance issues');
+  sections.push('   - Security vulnerabilities');
+  sections.push('   - Code readability');
+  sections.push('');
+  sections.push('2. Provide feedback in categories:');
+  sections.push('   - **Critical**: Must fix before merge');
+  sections.push('   - **Suggested**: Recommended improvements');
+  sections.push('   - **Optional**: Nice to have changes');
+  sections.push('');
+  sections.push('3. Format feedback as:');
+  sections.push('   - File: [filename]');
+  sections.push('   - Line: [line number]');
+  sections.push('   - Issue: [description]');
+  sections.push('   - Suggestion: [how to fix]');
+
+  return sections.join('\n');
+}
+
+function encodeCopilotPromptTest(schema) {
+  const sections = [];
+
+  sections.push('# Test Generation Prompt');
+  sections.push('');
+  sections.push('Generate tests for the following code:');
+  sections.push('');
+  sections.push('Requirements:');
+  sections.push('- Use appropriate testing framework');
+  sections.push('- Include edge cases');
+  sections.push('- Add descriptive test names');
+  sections.push('- Aim for good coverage');
+  sections.push('');
+  sections.push('Template:');
+  sections.push('');
+  sections.push('```typescript');
+  sections.push('describe("functionName", () => {');
+  sections.push('  it("should handle normal case", () => {');
+  sections.push('    // Test implementation');
+  sections.push('  });');
+  sections.push('});');
+  sections.push('```');
+
+  return sections.join('\n');
+}
+
+function encodeCopilotPromptRefactor(schema) {
+  const sections = [];
+
+  sections.push('# Refactor Prompt');
+  sections.push('');
+  sections.push('When refactoring code:');
+  sections.push('');
+  sections.push('1. Preserve existing behavior');
+  sections.push('2. Improve code structure');
+  sections.push('3. Remove duplication');
+  sections.push('4. Enhance readability');
+  sections.push('5. Optimize performance if needed');
+  sections.push('');
+  sections.push('Checklist:');
+  sections.push('- Extract common logic into functions');
+  sections.push('- Use meaningful names');
+  sections.push('- Add documentation');
+  sections.push('- Simplify complex conditions');
+  sections.push('- Update tests to match changes');
+
+  return sections.join('\n');
+}
+
+function encodeCopilotVSCodeSettings(schema) {
+  const settings = {
+    "github.copilot.enable": {
+      "*": true,
+      "yaml": false,
+      "plaintext": false
+    },
+    "github.copilot.advanced": {
+      "length": 500,
+      "temperature": schema.modelConfig.temperature || 0.7
+    },
+    "github.copilot.editor.enableAutoSuggestions": true,
+    "github.copilot.chat.enable": true,
+    "editor.inlineSuggest.enabled": true,
+    "editor.suggest.preview": true,
+    "editor.quickSuggestions": {
+      "other": true,
+      "comments": false,
+      "strings": false
+    }
+  };
+
+  return JSON.stringify(settings, null, 2);
+}
+
+function encodeCopilotVSCodeExtensions(schema) {
+  const extensions = {
+    recommendations: [
+      "GitHub.copilot",
+      "GitHub.copilot-chat",
+      "GitHub.copilot-labs"
+    ]
+  };
+
+  return JSON.stringify(extensions, null, 2);
+}
+
+function encodeCopilotIgnore(schema) {
+  const lines = [];
+
+  lines.push('# Copilot Ignore File');
+  lines.push('# Files excluded from Copilot context');
+  lines.push('');
+  lines.push('# Dependencies');
+  lines.push('node_modules/');
+  lines.push('');
+  lines.push('# Build outputs');
+  lines.push('dist/');
+  lines.push('build/');
+  lines.push('');
+  lines.push('# Secrets');
+  lines.push('.env');
+  lines.push('.env.*');
+  lines.push('credentials/');
+  lines.push('secrets/');
+  lines.push('');
+  lines.push('# Minified files');
+  lines.push('*.min.js');
+  lines.push('*.min.css');
+  lines.push('');
+  lines.push('# Coverage');
+  lines.push('coverage/');
+  lines.push('');
+  lines.push('# Generated files');
+  lines.push('*.generated.*');
+
+  return lines.join('\n');
+}
+
+function encodeCopilotSettingsJSON(schema) {
+  const settings = {
+    projectName: schema.meta.name || 'Copilot Project',
+    enableInlineSuggestions: true,
+    enableChat: true,
+    temperature: schema.modelConfig.temperature || 0.7,
+    maxTokens: schema.modelConfig.maxTokens || 4096,
+    languagePreferences: {
+      typescript: { strictMode: true },
+      javascript: { esModules: true }
+    },
+    rulesSource: ".github/copilot-instructions.md",
+    promptsDir: ".github/prompts/"
+  };
+
+  return JSON.stringify(settings, null, 2);
+}
+
+function encodeCopilotReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Copilot Agent'} - Bundle`);
+  sections.push('');
+  sections.push('GitHub Copilot Agent Configuration Bundle');
+  sections.push('');
+
+  sections.push('## Contents');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `.github/copilot-instructions.md` | Main instructions |');
+  sections.push('| `.github/prompts/` | Custom prompts |');
+  sections.push('| `.vscode/settings.json` | VSCode settings |');
+  sections.push('| `.vscode/extensions.json` | Extension recommendations |');
+  sections.push('| `.copilotignore` | File exclusions |');
+  sections.push('');
+
+  sections.push('## Installation');
+  sections.push('1. Extract to project root');
+  sections.push('2. Open project in VSCode');
+  sections.push('3. Ensure GitHub Copilot extension installed');
+  sections.push('4. Copilot will auto-load instructions');
+  sections.push('');
+
+  sections.push('## Chat Commands');
+  sections.push('```');
+  sections.push('@workspace Explain the project structure');
+  sections.push('@terminal Help me run tests');
+  sections.push('@vscode How to configure TypeScript');
+  sections.push('```');
+  sections.push('');
+
+  sections.push('## Prompt Variables');
+  sections.push('| Variable | Description |');
+  sections.push('|----------|-------------|');
+  sections.push('| `{language}` | Current file language |');
+  sections.push('| `{file}` | Current file name |');
+  sections.push('| `{workspace}` | Workspace name |');
+  sections.push('');
+
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// GitHub Copilot Bundle 解析（导入）
+// ============================================
+
+async function parseCopilotBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  const instructionsFile = zip.folder(".github")?.file("copilot-instructions.md");
+  let instructionsMD = '';
+  if (instructionsFile) {
+    instructionsMD = await instructionsFile.async("string");
+  }
+
+  const settingsFile = zip.folder(".vscode")?.file("settings.json");
+  let settingsJSON = '';
+  if (settingsFile) {
+    settingsJSON = await settingsFile.async("string");
+  }
+
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'copilot';
+  schema.meta.name = manifest.agent?.name || 'Copilot Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  parseCopilotInstructionsMD(instructionsMD, schema);
+  parseCopilotSettingsJSON(settingsJSON, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  const rawFiles = { instructionsMD, settingsJSON };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 从提取的文件直接解析 GitHub Copilot 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseCopilotBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'copilot';
+
+  // 查找并解析 .github/copilot-instructions.md 主指令文件
+  const instructionsMD = findFileByPattern(extractedFiles, [
+    '.github/copilot-instructions.md',
+    'github/copilot-instructions.md',
+    'copilot-instructions.md',
+    'instructions.md'
+  ]);
+  if (instructionsMD) {
+    parseCopilotInstructionsMD(instructionsMD, schema);
+  }
+
+  // 查找并解析 .vscode/settings.json
+  const settingsJSON = findFileByPattern(extractedFiles, [
+    '.vscode/settings.json',
+    'vscode/settings.json',
+    'settings.json'
+  ]);
+  if (settingsJSON) {
+    parseCopilotSettingsJSON(settingsJSON, schema);
+  }
+
+  // 查找并解析 .github/prompts/*.md
+  const promptFiles = {};
+  const promptNames = ['code-generation.md', 'review.md', 'test.md', 'refactor.md'];
+  for (const promptName of promptNames) {
+    const content = findFileByPattern(extractedFiles, [
+      '.github/prompts/' + promptName,
+      'github/prompts/' + promptName,
+      'prompts/' + promptName,
+      promptName
+    ]);
+    if (content) {
+      promptFiles[promptName] = content;
+    }
+  }
+
+  // 从 prompts 文件提取额外内容
+  for (const [promptName, content] of Object.entries(promptFiles)) {
+    if (content) {
+      // 可以提取 prompt 相关内容，暂不扩展 Schema
+    }
+  }
+
+  // 查找并解析 vscode-copilot-settings.json
+  const copilotSettingsJSON = findFileByPattern(extractedFiles, [
+    'vscode-copilot-settings.json',
+    'copilot-settings.json'
+  ]);
+  if (copilotSettingsJSON) {
+    try {
+      const settings = JSON.parse(copilotSettingsJSON);
+      if (settings.temperature) {
+        schema.modelConfig.temperature = settings.temperature;
+      }
+      if (settings.maxTokens) {
+        schema.modelConfig.maxTokens = settings.maxTokens;
+      }
+    } catch (e) {
+      console.warn('Copilot settings JSON parse warning:', e.message);
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseCopilotInstructionsMD(mdText, schema) {
+  if (!mdText) return;
+
+  // Extract project name
+  const nameMatch = mdText.match(/\*Name\*. (.+)/i);
+  if (nameMatch) {
+    schema.meta.name = nameMatch[1].trim();
+  }
+
+  // Extract constraints
+  const constraintsMatch = mdText.match(/## Constraints\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (constraintsMatch) {
+    const lines = constraintsMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.constraints.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+
+  // Extract code generation rules
+  const rulesMatch = mdText.match(/## Code Generation Rules\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (rulesMatch) {
+    const lines = rulesMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.outputRules.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+
+  // Extract additional instructions
+  const instructionsMatch = mdText.match(/## Additional Instructions\s*\n([\s\S]*?)(?=\n---|$)/i);
+  if (instructionsMatch) {
+    schema.identity.systemPrompt = instructionsMatch[1].trim();
+  }
+}
+
+function parseCopilotSettingsJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const settings = JSON.parse(jsonText);
+
+    if (settings["github.copilot.advanced"]?.temperature) {
+      schema.modelConfig.temperature = settings["github.copilot.advanced"].temperature;
+    }
+  } catch (e) {
+    console.warn('Copilot settings JSON parse warning:', e.message);
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 GitHub Copilot 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeCopilotToFiles(schema) {
+  return {
+    'copilot-instructions.md': encodeCopilotInstructionsMD(schema),
+    '.github/prompts/code-generation.md': encodeCopilotPromptCodeGeneration(schema),
+    '.github/prompts/review.md': encodeCopilotPromptReview(schema),
+    '.github/prompts/test.md': encodeCopilotPromptTest(schema),
+    '.github/prompts/refactor.md': encodeCopilotPromptRefactor(schema),
+    '.vscode/settings.json': encodeCopilotVSCodeSettings(schema),
+    '.vscode/extensions.json': encodeCopilotVSCodeExtensions(schema),
+    '.copilotignore': encodeCopilotIgnore(schema),
+    'vscode-copilot-settings.json': encodeCopilotSettingsJSON(schema),
+    'README.md': encodeCopilotReadme(schema)
+  };
+}
+
+window.CopilotBundle = {
+  createCopilotBundle,
+  parseCopilotBundle,
+  parseCopilotBundleFromFiles,
+  encodeCopilotInstructionsMD,
+  encodeCopilotPromptCodeGeneration,
+  encodeCopilotPromptReview,
+  encodeCopilotPromptTest,
+  encodeCopilotPromptRefactor,
+  encodeCopilotVSCodeSettings,
+  encodeCopilotVSCodeExtensions,
+  encodeCopilotIgnore,
+  encodeCopilotSettingsJSON,
+  encodeCopilotReadme,
+  encodeCopilotToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.CopilotBundle;
+}
+// Link global alias
+CopilotBundle = window.CopilotBundle;
+
+// ===== src/bundle/codex-bundle.js =====
+/**
+ * UAT Codex CLI Bundle 管理器 - Codex CLI Bundle Manager
+ * 专门处理 OpenAI Codex CLI Agent 的配置包导入导出
+ *
+ * Codex CLI 配置结构：
+ * 项目根目录/
+ * ├── AGENTS.md                 # 主Agent定义（YAML头 + Instructions）
+ * ├── .codex/
+ * │   ├── config.json           # Codex配置
+ * │   ├── tools.json            # 工具声明
+ * │   ├── providers.json        # 模型Provider
+ * │   └── skills/               # Skills目录
+ * │       └── skill1.md
+ * ├── scripts/
+ * │   ├── setup.sh              # 环境设置
+ * │   └── run.sh                # 运行脚本
+ * ├── .codexignore              # 文件排除
+ * ├── .env.example
+ * └── README.md
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Codex CLI Bundle 创建（导出）
+// ============================================
+
+async function createCodexBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Codex-CLI-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainAgent: "AGENTS.md",
+      codexDir: ".codex/",
+      skillsDir: ".codex/skills/",
+      scriptsDir: "scripts/"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Codex CLI Bundle"
+    },
+    notes: {
+      openaiOfficial: "OpenAI官方CLI工具",
+      skills: "Skills模块可复用",
+      providers: "支持OpenAI、Azure、Ollama多Provider"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. AGENTS.md - 主Agent定义
+  const agentsMD = encodeCodexAgentsMD(schema);
+  zip.file("AGENTS.md", agentsMD);
+
+  // 3. .codex/ 目录
+  const codexFolder = zip.folder(".codex");
+  codexFolder.file("config.json", encodeCodexConfigJSON(schema));
+  codexFolder.file("tools.json", encodeCodexToolsJSON(schema));
+  codexFolder.file("providers.json", encodeCodexProvidersJSON(schema));
+
+  // 3.1 .codex/skills/ 目录
+  const skillsFolder = codexFolder.folder("skills");
+  skillsFolder.file("code-review.md", encodeCodexSkillCodeReview(schema));
+  skillsFolder.file("testing.md", encodeCodexSkillTesting(schema));
+
+  // 4. scripts/ 目录
+  const scriptsFolder = zip.folder("scripts");
+  scriptsFolder.file("setup.sh", encodeCodexSetupScript(schema));
+  scriptsFolder.file("run.sh", encodeCodexRunScript(schema));
+
+  // 5. .codexignore
+  const codexignore = encodeCodexIgnore(schema);
+  zip.file(".codexignore", codexignore);
+
+  // 6. .env.example
+  const envExample = encodeCodexEnvExample(schema);
+  zip.file(".env.example", envExample);
+
+  // 7. README.md
+  zip.file("README.md", encodeCodexReadme(schema));
+
+  // 8. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// Codex CLI 编码器
+// ============================================
+
+function encodeCodexAgentsMD(schema) {
+  const sections = [];
+
+  // YAML Frontmatter
+  sections.push('---');
+  sections.push(`name: "${schema.meta.name || 'Codex Agent'}"`);
+  sections.push(`description: "${schema.meta.description || 'Codex CLI Assistant'}"`);
+  sections.push(`model: "${schema.modelConfig.model || 'gpt-4'}"`);
+
+  // Identity扩展字段（Codex不支持language字段）
+  if (schema.identity.role) {
+    sections.push(`role: "${schema.identity.role}"`);
+  }
+  if (schema.identity.personality) {
+    sections.push(`personality: "${schema.identity.personality}"`);
+  }
+
+  sections.push('');
+  sections.push('tools:');
+  sections.push('  - name: "filesystem"');
+  sections.push('    type: "builtin"');
+  sections.push('    capabilities: ["read", "write"]');
+  sections.push('  - name: "terminal"');
+  sections.push('    type: "builtin"');
+  sections.push('    capabilities: ["execute"]');
+
+  if (schema.tools.mcpServers?.length > 0) {
+    for (const mcp of schema.tools.mcpServers) {
+      sections.push(`  - name: "${mcp.name}"`);
+      sections.push('    type: "http"');
+      if (mcp.url) {
+        sections.push('    config:');
+        sections.push(`      url: "${mcp.url}"`);
+      }
+    }
+  }
+
+  sections.push('');
+  sections.push('allowedPaths:');
+  sections.push('  - "./src"');
+  sections.push('  - "./tests"');
+  sections.push('  - "./docs"');
+  sections.push('');
+  sections.push(`maxTokens: ${schema.modelConfig.maxTokens || 4096}`);
+  sections.push(`temperature: ${schema.modelConfig.temperature || 0.7}`);
+  sections.push('---');
+  sections.push('');
+
+  // Markdown Instructions
+  sections.push('# Instructions');
+  sections.push('');
+  if (schema.identity.systemPrompt) {
+    sections.push(schema.identity.systemPrompt);
+    sections.push('');
+  }
+
+  // Project Context
+  sections.push('## Project Context');
+  sections.push('- Application type: General');
+  sections.push('- Primary language: TypeScript');
+  sections.push('');
+
+  // Task Handling
+  sections.push('## Task Handling');
+  sections.push('1. Understand the user request');
+  sections.push('2. Check existing code patterns');
+  sections.push('3. Plan the implementation');
+  sections.push('4. Execute changes safely');
+  sections.push('5. Verify with tests');
+  sections.push('');
+
+  // Code Guidelines
+  sections.push('## Code Guidelines');
+  sections.push('- Follow TypeScript strict mode');
+  sections.push('- Use async/await for async operations');
+  sections.push('- Handle errors with try-catch');
+  sections.push('- Add unit tests for new features');
+  sections.push('');
+
+  // Constraints
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Constraints');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // Memory encoding（使用表格格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToCodexMD(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码（使用表格格式）
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Base');
+      sections.push('');
+      sections.push('| Name | Type | Source |');
+      sections.push('|------|------|--------|');
+      if (kbContent.datasets) {
+        kbContent.datasets.forEach(ds => {
+          sections.push(`| ${ds.name || 'Dataset'} | ${ds.type || 'text'} | ${ds.source || 'N/A'} |`);
+        });
+      }
+      if (kbContent.documents) {
+        kbContent.documents.forEach(doc => {
+          sections.push(`| ${doc.title || 'Document'} | document | ${doc.source || 'N/A'} |`);
+        });
+      }
+      sections.push('');
+    }
+  }
+
+  // Workflow
+  if (schema.workflow.steps?.length > 0) {
+    sections.push('## Workflow');
+    sections.push('When implementing a feature:');
+    for (let i = 0; i < schema.workflow.steps.length; i++) {
+      const step = schema.workflow.steps[i];
+      sections.push(`${i + 1}. ${step.name}`);
+    }
+    sections.push('');
+  }
+
+  // Skills encoding（使用表格格式）
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToCodexMD(schema.skills));
+  }
+
+  sections.push('---');
+  sections.push('');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+function encodeCodexConfigJSON(schema) {
+  const config = {
+    version: "1.0",
+    agentName: schema.meta.name || 'CodexAgent',
+    model: {
+      provider: "openai",
+      name: schema.modelConfig.model || 'gpt-4',
+      fallback: "gpt-3.5-turbo",
+      parameters: {
+        temperature: schema.modelConfig.temperature || 0.7,
+        maxTokens: schema.modelConfig.maxTokens || 4096,
+        topP: 1.0
+      }
+    },
+    execution: {
+      timeout: 60000,
+      maxRetries: 3,
+      approvalMode: "ask"
+    },
+    logging: {
+      enabled: true,
+      level: "info",
+      redactSecrets: true
+    },
+    sandbox: {
+      enabled: true,
+      allowedCommands: ["npm", "node", "git", "npx"],
+      blockedCommands: ["rm -rf", "sudo", "chmod"]
+    }
+  };
+
+  return JSON.stringify(config, null, 2);
+}
+
+function encodeCodexToolsJSON(schema) {
+  const tools = {
+    tools: [
+      {
+        name: "filesystem",
+        type: "builtin",
+        description: "File system operations",
+        capabilities: ["read", "write", "delete", "list"],
+        config: {
+          rootPath: "./",
+          allowedExtensions: ["*.ts", "*.js", "*.json", "*.md"],
+          maxFileSize: 1048576
+        }
+      },
+      {
+        name: "terminal",
+        type: "builtin",
+        description: "Command execution",
+        config: {
+          timeout: 30000,
+          sandbox: true
+        }
+      },
+      {
+        name: "web_search",
+        type: "builtin",
+        description: "Web search capability"
+      }
+    ]
+  };
+
+  // Add custom tools
+  if (schema.tools.apiEndpoints?.length > 0) {
+    for (const api of schema.tools.apiEndpoints) {
+      tools.tools.push({
+        name: api.name,
+        type: "http",
+        description: api.description || api.name,
+        config: {
+          url: api.url || '',
+          method: api.method || 'GET',
+          headers: {},
+          timeout: 15000
+        }
+      });
+    }
+  }
+
+  return JSON.stringify(tools, null, 2);
+}
+
+function encodeCodexProvidersJSON(schema) {
+  const providers = {
+    providers: [
+      {
+        name: "openai",
+        type: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        apiKeyEnv: "OPENAI_API_KEY",
+        models: ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"]
+      },
+      {
+        name: "azure",
+        type: "azure_openai",
+        baseUrl: "{{AZURE_OPENAI_URL}}",
+        apiKeyEnv: "AZURE_OPENAI_KEY",
+        models: ["gpt-4", "gpt-35-turbo"]
+      },
+      {
+        name: "local",
+        type: "ollama",
+        baseUrl: "http://localhost:11434",
+        models: ["llama2", "codellama"]
+      }
+    ]
+  };
+
+  return JSON.stringify(providers, null, 2);
+}
+
+function encodeCodexSkillCodeReview(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "Code Review Skill"');
+  sections.push('description: "Perform comprehensive code review"');
+  sections.push('tools: ["filesystem_read", "terminal_execute"]');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Perform comprehensive code review:');
+  sections.push('');
+  sections.push('1. Read the target files');
+  sections.push('2. Analyze code quality:');
+  sections.push('   - Type safety');
+  sections.push('   - Error handling');
+  sections.push('   - Performance');
+  sections.push('   - Security');
+  sections.push('3. Provide structured feedback');
+  sections.push('4. Suggest improvements');
+
+  return sections.join('\n');
+}
+
+function encodeCodexSkillTesting(schema) {
+  const sections = [];
+
+  sections.push('---');
+  sections.push('name: "Testing Skill"');
+  sections.push('description: "Create and run tests"');
+  sections.push('tools: ["filesystem", "terminal"]');
+  sections.push('---');
+  sections.push('');
+  sections.push('# Instructions');
+  sections.push('');
+  sections.push('Create and execute tests:');
+  sections.push('');
+  sections.push('1. Identify files to test');
+  sections.push('2. Create test files in appropriate location');
+  sections.push('3. Write unit tests for key functions');
+  sections.push('4. Run tests using npm test');
+  sections.push('5. Report test results');
+
+  return sections.join('\n');
+}
+
+function encodeCodexSetupScript(schema) {
+  const lines = [];
+
+  lines.push('#!/bin/bash');
+  lines.push('# Codex CLI Setup Script');
+  lines.push('# Generated by UAT Converter');
+  lines.push('');
+  lines.push('echo "Setting up Codex CLI environment..."');
+  lines.push('');
+  lines.push('# Check if codex is installed');
+  lines.push('if ! command -v codex &> /dev/null; then');
+  lines.push('  echo "Installing Codex CLI..."');
+  lines.push('  npm install -g @openai/codex-cli');
+  lines.push('fi');
+  lines.push('');
+  lines.push('# Copy environment file');
+  lines.push('if [ ! -f .env ]; then');
+  lines.push('  cp .env.example .env');
+  lines.push('  echo "Please edit .env with your API keys"');
+  lines.push('fi');
+  lines.push('');
+  lines.push('# Set default model');
+  lines.push(`codex config set default_model ${schema.modelConfig.model || 'gpt-4'}`);
+  lines.push('');
+  lines.push('echo "Setup complete! Run ./scripts/run.sh to start."');
+
+  return lines.join('\n');
+}
+
+function encodeCodexRunScript(schema) {
+  const lines = [];
+
+  lines.push('#!/bin/bash');
+  lines.push('# Codex CLI Run Script');
+  lines.push('# Generated by UAT Converter');
+  lines.push('');
+  lines.push('echo "Starting Codex CLI Agent..."');
+  lines.push('');
+  lines.push('# Run codex with AGENTS.md');
+  lines.push(`codex --agent ./AGENTS.md --model ${schema.modelConfig.model || 'gpt-4'}`);
+  lines.push('');
+  lines.push('# Or use custom approval mode');
+  lines.push('# codex --agent ./AGENTS.md --approval-mode auto');
+
+  return lines.join('\n');
+}
+
+function encodeCodexIgnore(schema) {
+  const lines = [];
+
+  lines.push('# Codex CLI Ignore File');
+  lines.push('# Files excluded from Codex context');
+  lines.push('');
+  lines.push('# Dependencies');
+  lines.push('node_modules/');
+  lines.push('package-lock.json');
+  lines.push('');
+  lines.push('# Build outputs');
+  lines.push('dist/');
+  lines.push('build/');
+  lines.push('');
+  lines.push('# Secrets');
+  lines.push('.env');
+  lines.push('.env.local');
+  lines.push('.env.*.local');
+  lines.push('');
+  lines.push('# Cache');
+  lines.push('.cache/');
+  lines.push('*.log');
+  lines.push('');
+  lines.push('# Large files');
+  lines.push('*.min.js');
+  lines.push('*.bundle.js');
+
+  return lines.join('\n');
+}
+
+function encodeCodexEnvExample(schema) {
+  const lines = [];
+
+  lines.push('# Codex CLI Environment Variables');
+  lines.push('# Copy to .env and fill in your API keys');
+  lines.push('');
+  lines.push('# OpenAI API Key (required)');
+  lines.push('OPENAI_API_KEY=sk-xxx');
+  lines.push('');
+  lines.push('# Azure OpenAI (optional)');
+  lines.push('AZURE_OPENAI_URL=https://your-resource.openai.azure.com');
+  lines.push('AZURE_OPENAI_KEY=xxx');
+  lines.push('');
+  lines.push('# Local Ollama (optional)');
+  lines.push('OLLAMA_BASE_URL=http://localhost:11434');
+  lines.push('');
+  lines.push('# Codex Config');
+  lines.push(`CODEX_DEFAULT_MODEL=${schema.modelConfig.model || 'gpt-4'}`);
+  lines.push('CODEX_APPROVAL_MODE=ask');
+
+  return lines.join('\n');
+}
+
+function encodeCodexReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Codex Agent'} - Bundle`);
+  sections.push('');
+  sections.push('OpenAI Codex CLI Agent Bundle');
+  sections.push('');
+
+  sections.push('## Contents');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `AGENTS.md` | Main agent definition |');
+  sections.push('| `.codex/config.json` | Codex configuration |');
+  sections.push('| `.codex/tools.json` | Tool declarations |');
+  sections.push('| `.codex/providers.json` | Model providers |');
+  sections.push('| `.codex/skills/` | Skill modules |');
+  sections.push('| `scripts/setup.sh` | Setup script |');
+  sections.push('| `scripts/run.sh` | Run script |');
+  sections.push('');
+
+  sections.push('## Installation');
+  sections.push('1. Extract to project root');
+  sections.push('2. Run `./scripts/setup.sh`');
+  sections.push('3. Edit `.env` with API keys');
+  sections.push('4. Run `./scripts/run.sh` to start');
+  sections.push('');
+
+  sections.push('## CLI Commands');
+  sections.push('```bash');
+  sections.push('codex                     # Interactive mode');
+  sections.push('codex "task description"  # Single task');
+  sections.push('codex --agent ./AGENTS.md # Use agent file');
+  sections.push('codex --model gpt-4-turbo # Specify model');
+  sections.push('```');
+  sections.push('');
+
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Codex CLI Bundle 解析（导入）
+// ============================================
+
+async function parseCodexBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  const agentsFile = zip.file("AGENTS.md");
+  let agentsMD = '';
+  if (agentsFile) {
+    agentsMD = await agentsFile.async("string");
+  }
+
+  const configFile = zip.folder(".codex").file("config.json");
+  let configJSON = '';
+  if (configFile) {
+    configJSON = await configFile.async("string");
+  }
+
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'codex';
+  schema.meta.name = manifest.agent?.name || 'Codex Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  parseCodexAgentsMD(agentsMD, schema);
+  parseCodexConfigJSON(configJSON, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  const rawFiles = { agentsMD, configJSON };
+
+  return { schema, manifest, rawFiles };
+}
+
+/**
+ * 从提取的文件直接解析 Codex CLI 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseCodexBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'codex';
+
+  // 查找并解析 AGENTS.md 主 Agent 定义文件
+  const agentsMD = findFileByPattern(extractedFiles, ['AGENTS.md', 'agents.md']);
+  if (agentsMD) {
+    parseCodexAgentsMD(agentsMD, schema);
+  }
+
+  // 查找并解析 .codex/config.json
+  const configJSON = findFileByPattern(extractedFiles, [
+    '.codex/config.json',
+    'codex/config.json',
+    'config.json'
+  ]);
+  if (configJSON) {
+    parseCodexConfigJSON(configJSON, schema);
+  }
+
+  // 查找并解析 .codex/tools.json
+  const toolsJSON = findFileByPattern(extractedFiles, [
+    '.codex/tools.json',
+    'codex/tools.json',
+    'tools.json'
+  ]);
+  if (toolsJSON) {
+    try {
+      const tools = JSON.parse(toolsJSON);
+      if (tools.tools?.length > 0) {
+        for (const tool of tools.tools) {
+          if (tool.type === 'http') {
+            const api = {
+              name: tool.name,
+              url: tool.config?.url || '',
+              method: tool.config?.method || 'GET',
+              description: tool.description || ''
+            };
+            schema.tools.apiEndpoints.push(api);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Codex tools JSON parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 .codex/providers.json
+  const providersJSON = findFileByPattern(extractedFiles, [
+    '.codex/providers.json',
+    'codex/providers.json',
+    'providers.json'
+  ]);
+  if (providersJSON) {
+    try {
+      const providers = JSON.parse(providersJSON);
+      if (providers.providers?.length > 0) {
+        // 提取模型信息
+        for (const provider of providers.providers) {
+          if (provider.models?.length > 0) {
+            // 使用第一个模型的名称作为默认模型
+            if (!schema.modelConfig.model) {
+              schema.modelConfig.model = provider.models[0];
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Codex providers JSON parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 .codex/skills/*.md
+  const skillFiles = {};
+  const skillPatterns = ['code-review.md', 'testing.md', 'skill1.md'];
+  for (const skillName of skillPatterns) {
+    const content = findFileByPattern(extractedFiles, [
+      '.codex/skills/' + skillName,
+      'codex/skills/' + skillName,
+      'skills/' + skillName,
+      skillName
+    ]);
+    if (content) {
+      skillFiles[skillName] = content;
+    }
+  }
+
+  // 从 skills 文件提取额外内容
+  for (const [skillName, content] of Object.entries(skillFiles)) {
+    if (content) {
+      const skillMatch = content.match(/---\s*\n([\s\S]*?)\n---/);
+      if (skillMatch) {
+        const skillYAML = skillMatch[1];
+        const nameMatch = skillYAML.match(/name:\s*"([^"]+)"/);
+        if (nameMatch) {
+          // 可以扩展 Schema 以包含 skills 信息
+        }
+      }
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseCodexAgentsMD(mdText, schema) {
+  if (!mdText) return;
+
+  // Parse YAML frontmatter
+  const yamlMatch = mdText.match(/---\s*\n([\s\S]*?)\n---/);
+  if (yamlMatch) {
+    const yamlText = yamlMatch[1];
+
+    const nameMatch = yamlText.match(/name:\s*"([^"]+)"/);
+    if (nameMatch) schema.meta.name = nameMatch[1];
+
+    const modelMatch = yamlText.match(/model:\s*"([^"]+)"/);
+    if (modelMatch) schema.modelConfig.model = modelMatch[1];
+
+    const tempMatch = yamlText.match(/temperature:\s*([\d.]+)/);
+    if (tempMatch) schema.modelConfig.temperature = parseFloat(tempMatch[1]);
+
+    const maxTokensMatch = yamlText.match(/maxTokens:\s*(\d+)/);
+    if (maxTokensMatch) schema.modelConfig.maxTokens = parseInt(maxTokensMatch[1]);
+  }
+
+  // Parse Instructions section
+  const instructionsMatch = mdText.match(/# Instructions\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (instructionsMatch) {
+    schema.identity.systemPrompt = instructionsMatch[1].trim();
+  }
+
+  // Parse Constraints
+  const constraintsMatch = mdText.match(/## Constraints\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (constraintsMatch) {
+    const lines = constraintsMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.constraints.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+}
+
+function parseCodexConfigJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const config = JSON.parse(jsonText);
+
+    if (config.model?.name) {
+      schema.modelConfig.model = config.model.name;
+    }
+    if (config.model?.parameters?.temperature) {
+      schema.modelConfig.temperature = config.model.parameters.temperature;
+    }
+    if (config.model?.parameters?.maxTokens) {
+      schema.modelConfig.maxTokens = config.model.parameters.maxTokens;
+    }
+  } catch (e) {
+    console.warn('Codex config JSON parse warning:', e.message);
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Codex CLI 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeCodexToFiles(schema) {
+  return {
+    'AGENTS.md': encodeCodexAgentsMD(schema),
+    '.codex/config.json': encodeCodexConfigJSON(schema),
+    '.codex/tools.json': encodeCodexToolsJSON(schema),
+    '.codex/providers.json': encodeCodexProvidersJSON(schema),
+    'skills/code-review.md': encodeCodexSkillCodeReview(schema),
+    'skills/testing.md': encodeCodexSkillTesting(schema),
+    'scripts/setup.sh': encodeCodexSetupScript(schema),
+    'scripts/run.sh': encodeCodexRunScript(schema),
+    '.codexignore': encodeCodexIgnore(schema),
+    '.env.example': encodeCodexEnvExample(schema),
+    'README.md': encodeCodexReadme(schema)
+  };
+}
+
+window.CodexBundle = {
+  createCodexBundle,
+  parseCodexBundle,
+  parseCodexBundleFromFiles,
+  encodeCodexAgentsMD,
+  encodeCodexConfigJSON,
+  encodeCodexToolsJSON,
+  encodeCodexProvidersJSON,
+  encodeCodexSkillCodeReview,
+  encodeCodexSkillTesting,
+  encodeCodexSetupScript,
+  encodeCodexRunScript,
+  encodeCodexIgnore,
+  encodeCodexEnvExample,
+  encodeCodexReadme,
+  encodeCodexToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.CodexBundle;
+}
+// Link global alias
+CodexBundle = window.CodexBundle;
+
+// ===== src/bundle/zed-bundle.js =====
+/**
+ * UAT Zed Editor Bundle 管理器 - Zed Editor Bundle Manager
+ * 专门处理 Zed Editor Agent 的配置包导入导出
+ *
+ * Zed Editor 配置结构：
+ * 项目根目录/
+ * ├── rules.md                  # 主规则文件
+ * ├── .zed/
+ * │   ├── settings.json         # Zed编辑器设置
+ * │   ├── tasks.json            # 任务配置
+ * │   ├── languages/            # 语言特定规则
+ * │   ├── context/
+ * │   └── prompts/              # 自定义提示词
+ * ├── .zedignore                # 文件排除
+ * └── README.md
+ */
+
+// ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
+// Zed Editor Bundle 创建（导出）
+// ============================================
+
+async function createZedBundle(schema, options = {}) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+
+  // 1. manifest.json
+  const manifest = {
+    bundleVersion: "1.0",
+    bundleType: "Zed-Editor-Agent-Bundle",
+    agent: {
+      name: schema.meta.name,
+      description: schema.meta.description,
+      sourcePlatform: schema.meta.sourcePlatform || 'unknown'
+    },
+    files: {
+      mainRules: "rules.md",
+      zedDir: ".zed/",
+      languagesDir: ".zed/languages/",
+      promptsDir: ".zed/prompts/"
+    },
+    exportMeta: {
+      createdAt: new Date().toISOString(),
+      exportedBy: "UAT v2.0 - Zed Editor Bundle"
+    },
+    notes: {
+      highPerformance: "高性能原生编辑器",
+      multiProvider: "支持Anthropic、OpenAI、Ollama多Provider",
+      languageRules: "按编程语言定制规则"
+    }
+  };
+  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+  // 2. rules.md
+  zip.file("rules.md", encodeZedRulesMD(schema));
+
+  // 3. .zed/ 目录
+  const zedFolder = zip.folder(".zed");
+  zedFolder.file("settings.json", encodeZedSettingsJSON(schema));
+  zedFolder.file("tasks.json", encodeZedTasksJSON(schema));
+
+  // 3.1 languages/
+  const languagesFolder = zedFolder.folder("languages");
+  languagesFolder.file("rust.md", encodeZedLanguageRust(schema));
+  languagesFolder.file("python.md", encodeZedLanguagePython(schema));
+  languagesFolder.file("typescript.md", encodeZedLanguageTypeScript(schema));
+
+  // 3.2 context/
+  const contextFolder = zedFolder.folder("context");
+  contextFolder.file("files.json", encodeZedContextFiles(schema));
+
+  // 3.3 prompts/
+  const promptsFolder = zedFolder.folder("prompts");
+  promptsFolder.file("explain.md", encodeZedPromptExplain(schema));
+  promptsFolder.file("refactor.md", encodeZedPromptRefactor(schema));
+  promptsFolder.file("test.md", encodeZedPromptTest(schema));
+
+  // 4. .zedignore
+  zip.file(".zedignore", encodeZedIgnore(schema));
+
+  // 5. README.md
+  zip.file("README.md", encodeZedReadme(schema));
+
+  // 6. 生成 ZIP
+  return await zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 }
+  });
+}
+
+// ============================================
+// Zed Editor 编码器
+// ============================================
+
+function extractZedProvider(modelName) {
+  if (!modelName) return 'anthropic';
+  const lower = modelName.toLowerCase();
+  if (lower.includes('claude')) return 'anthropic';
+  if (lower.includes('gpt')) return 'openai';
+  if (lower.includes('llama')) return 'ollama';
+  return 'anthropic';
+}
+
+function encodeZedRulesMD(schema) {
+  const sections = [];
+
+  sections.push('# Zed AI Assistant Rules');
+  sections.push('');
+  sections.push('> Highest priority rules for Zed Editor AI assistant.');
+  sections.push('');
+
+  sections.push('## Project Overview');
+  sections.push(`- **Name**: ${schema.meta.name || 'Zed Project'}`);
+  sections.push(`- **Description**: ${schema.meta.description || 'AI-assisted development project'}`);
+  sections.push('');
+
+  // Role 定位
+  if (schema.identity.role) {
+    sections.push('## Role');
+    sections.push('');
+    sections.push(`You are acting as: ${schema.identity.role}`);
+    sections.push('');
+  }
+
+  // Personality 性格特点
+  if (schema.identity.personality) {
+    sections.push('## Personality');
+    sections.push('');
+    sections.push(`Communication style: ${schema.identity.personality}`);
+    sections.push('');
+  }
+
+  // Language 语言偏好
+  if (schema.identity.language) {
+    sections.push('## Language');
+    sections.push('');
+    const langDisplay = schema.identity.language === 'zh-CN' ? 'Chinese' :
+                        schema.identity.language === 'en-US' ? 'English' : schema.identity.language;
+    sections.push(`Primary language: ${langDisplay}`);
+    sections.push(`- Respond in ${langDisplay} unless specified otherwise`);
+    sections.push('');
+  }
+
+  sections.push('## General Guidelines');
+  sections.push('- Write clean, idiomatic code');
+  sections.push('- Use meaningful variable names');
+  sections.push('- Add documentation comments for public items');
+  sections.push('');
+
+  sections.push('## Code Generation');
+  if (schema.identity.outputRules?.length > 0) {
+    for (const rule of schema.identity.outputRules) {
+      sections.push(`- ${rule}`);
+    }
+  } else {
+    sections.push('- Use latest stable language features');
+    sections.push('- Proper error handling');
+    sections.push('- Use async patterns where appropriate');
+  }
+  sections.push('');
+
+  if (schema.identity.constraints?.length > 0) {
+    sections.push('## Constraints');
+    sections.push('');
+    sections.push('> These rules must NEVER be violated:');
+    sections.push('');
+    for (const c of schema.identity.constraints) {
+      sections.push(`- ${c}`);
+    }
+    sections.push('');
+  }
+
+  // Memory encoding（使用JSON代码块格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToJSONBlock(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码（使用JSON代码块格式）
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Base');
+      sections.push('');
+      sections.push('```json');
+      sections.push(JSON.stringify({
+        datasets: kbContent.datasets?.map(ds => ({
+          id: ds.id,
+          name: ds.name,
+          type: ds.type
+        })) || [],
+        documents: kbContent.documents?.map(doc => ({
+          id: doc.id,
+          title: doc.title,
+          source: doc.source
+        })) || []
+      }, null, 2));
+      sections.push('```');
+      sections.push('');
+    }
+  }
+
+  // 技能编码（使用JSON代码块格式）
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills?.skills?.length > 0 && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToJSONBlock(schema.skills));
+  }
+
+  sections.push('## Testing');
+  sections.push('- Write unit tests for critical functions');
+  sections.push('- Use appropriate testing frameworks');
+  sections.push('');
+
+  sections.push('## Output Format');
+  sections.push('- Use Markdown for explanations');
+  sections.push('- Provide code with comments');
+  sections.push('');
+
+  if (schema.identity.systemPrompt) {
+    sections.push('## Additional Instructions');
+    sections.push('');
+    sections.push(schema.identity.systemPrompt);
+    sections.push('');
+  }
+
+  sections.push('---');
+  sections.push(`*Generated by UAT Converter at ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+function encodeZedSettingsJSON(schema) {
+  const provider = extractZedProvider(schema.modelConfig.model);
+
+  const settings = {
+    assistant: {
+      default_model: {
+        provider: provider,
+        model: schema.modelConfig.model || 'claude-3-5-sonnet'
+      },
+      fallback_models: [{ provider: 'openai', model: 'gpt-4' }],
+      inline_assistant: true,
+      enable_experiments: true,
+      context_window: 100000
+    },
+    editor: {
+      format_on_save: true,
+      tab_size: 4,
+      soft_wrap: 'preferred_line_length',
+      preferred_line_length: 100
+    },
+    languages: {
+      Rust: { format_on_save: true, tab_size: 4 },
+      Python: { format_on_save: true, tab_size: 4 },
+      TypeScript: { format_on_save: true, tab_size: 2 }
+    }
+  };
+
+  return JSON.stringify(settings, null, 2);
+}
+
+function encodeZedTasksJSON(schema) {
+  const tasks = {
+    tasks: [
+      { name: "Build", command: "npm run build", cwd: "$ZED_WORKTREE_ROOT" },
+      { name: "Test", command: "npm test", cwd: "$ZED_WORKTREE_ROOT" },
+      { name: "Lint", command: "npm run lint", cwd: "$ZED_WORKTREE_ROOT" },
+      { name: "Run", command: "npm start", cwd: "$ZED_WORKTREE_ROOT" }
+    ]
+  };
+
+  return JSON.stringify(tasks, null, 2);
+}
+
+function encodeZedLanguageRust(schema) {
+  return '# Rust Language Rules\n\n## Code Style\n- Use idiomatic Rust patterns\n- Prefer iterators over loops\n- Use Option and Result properly\n\n## Error Handling\n- Use Result<T, E> for fallible operations\n- Use ? operator for propagation\n';
+}
+
+function encodeZedLanguagePython(schema) {
+  return '# Python Language Rules\n\n## Code Style\n- Follow PEP 8 conventions\n- Use type hints (Python 3.9+)\n- Prefer f-strings for formatting\n\n## Best Practices\n- Use list/dict comprehensions\n- Prefer dataclasses for data\n';
+}
+
+function encodeZedLanguageTypeScript(schema) {
+  return '# TypeScript Language Rules\n\n## Code Style\n- Use strict mode\n- Prefer interfaces over types for objects\n- Avoid any type\n\n## Features\n- Use ES modules\n- Prefer async/await\n';
+}
+
+function encodeZedContextFiles(schema) {
+  const context = {
+    always_include: ["README.md", "rules.md", "package.json"],
+    watch_files: [".zed/languages/*.md"],
+    max_context_files: 20,
+    max_file_size: 1000000
+  };
+
+  return JSON.stringify(context, null, 2);
+}
+
+function encodeZedPromptExplain(schema) {
+  return '# Explain Code Prompt\n\nExplain the following code:\n\n```{{language}}\n{{code}}\n```\n\nProvide:\n1. High-level purpose\n2. Key functions/methods\n3. Dependencies used\n';
+}
+
+function encodeZedPromptRefactor(schema) {
+  return '# Refactor Prompt\n\nRefactor the following code:\n\n```{{language}}\n{{code}}\n```\n\nGoals:\n- Improve readability\n- Reduce complexity\n- Enhance performance\n';
+}
+
+function encodeZedPromptTest(schema) {
+  return '# Test Generation Prompt\n\nGenerate tests for:\n\n```{{language}}\n{{code}}\n```\n\nRequirements:\n- Use appropriate testing framework\n- Include edge cases\n';
+}
+
+function encodeZedIgnore(schema) {
+  return '# Zed Ignore File\nnode_modules/\ndist/\nbuild/\n.env\n.env.*\n*.min.js\n*.min.css\n';
+}
+
+function encodeZedReadme(schema) {
+  const sections = [];
+
+  sections.push(`# ${schema.meta.name || 'Zed Agent'} - Bundle`);
+  sections.push('');
+  sections.push('Zed Editor AI Assistant Configuration Bundle');
+  sections.push('');
+  sections.push('## Contents');
+  sections.push('| File | Description |');
+  sections.push('|------|-------------|');
+  sections.push('| `rules.md` | Main rules |');
+  sections.push('| `.zed/settings.json` | Editor settings |');
+  sections.push('| `.zed/tasks.json` | Task configs |');
+  sections.push('| `.zed/languages/` | Language rules |');
+  sections.push('');
+  sections.push('## Keyboard Shortcuts');
+  sections.push('| Action | Mac | Windows/Linux |');
+  sections.push('|--------|-----|---------------|');
+  sections.push('| Inline Assist | Cmd+Shift+E | Ctrl+Shift+E |');
+  sections.push('| Panel Assist | Cmd+Shift+A | Ctrl+Shift+A |');
+  sections.push('');
+  sections.push('## Providers');
+  sections.push('- Anthropic (Claude)');
+  sections.push('- OpenAI (GPT-4)');
+  sections.push('- Ollama (Local)');
+  sections.push('');
+  sections.push(`*Generated: ${new Date().toISOString()}*`);
+
+  return sections.join('\n');
+}
+
+// ============================================
+// Zed Editor Bundle 解析（导入）
+// ============================================
+
+async function parseZedBundle(zipFile) {
+  if (!window.JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = await JSZip.loadAsync(zipFile);
+
+  const manifestFile = zip.file("manifest.json");
+  if (!manifestFile) {
+    throw new Error('Bundle 缺少 manifest.json');
+  }
+  const manifest = JSON.parse(await manifestFile.async("string"));
+
+  const rulesFile = zip.file("rules.md");
+  let rulesMD = '';
+  if (rulesFile) {
+    rulesMD = await rulesFile.async("string");
+  }
+
+  const settingsFile = zip.folder(".zed")?.file("settings.json");
+  let settingsJSON = '';
+  if (settingsFile) {
+    settingsJSON = await settingsFile.async("string");
+  }
+
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'zed';
+  schema.meta.name = manifest.agent?.name || 'Zed Agent';
+  schema.meta.description = manifest.agent?.description || '';
+
+  parseZedRulesMD(rulesMD, schema);
+  parseZedSettingsJSON(settingsJSON, schema);
+
+  UATCore.fillSchemaDefaultValues(schema);
+
+  return { schema, manifest, rawFiles: { rulesMD, settingsJSON } };
+}
+
+/**
+ * 从提取的文件直接解析 Zed Editor 配置（无需 manifest）
+ * @param {Object} extractedFiles - { path: content }
+ * @param {JSZip} zip - ZIP 对象（可选）
+ * @returns {Promise<Object>} UAT-Schema
+ */
+async function parseZedBundleFromFiles(extractedFiles, zip) {
+  const schema = UATCore.createEmptyUATSchema();
+  schema.meta.sourcePlatform = 'zed';
+
+  // 查找并解析 rules.md 主规则文件
+  const rulesMD = findFileByPattern(extractedFiles, ['rules.md', 'RULES.md']);
+  if (rulesMD) {
+    parseZedRulesMD(rulesMD, schema);
+  }
+
+  // 查找并解析 .zed/settings.json
+  const settingsJSON = findFileByPattern(extractedFiles, [
+    '.zed/settings.json',
+    'zed/settings.json',
+    'settings.json'
+  ]);
+  if (settingsJSON) {
+    parseZedSettingsJSON(settingsJSON, schema);
+  }
+
+  // 查找并解析 .zed/tasks.json
+  const tasksJSON = findFileByPattern(extractedFiles, [
+    '.zed/tasks.json',
+    'zed/tasks.json',
+    'tasks.json'
+  ]);
+  if (tasksJSON) {
+    try {
+      const tasks = JSON.parse(tasksJSON);
+      if (tasks.tasks?.length > 0) {
+        // 可以将 tasks 映射到 workflow.steps
+        for (let i = 0; i < tasks.tasks.length; i++) {
+          const task = tasks.tasks[i];
+          const step = UATCore.createEmptyWorkflowStep();
+          step.stepId = `task_${i}`;
+          step.name = task.name;
+          step.type = 'task';
+          step.content = task.command || '';
+          schema.workflow.steps.push(step);
+        }
+      }
+    } catch (e) {
+      console.warn('Zed tasks JSON parse warning:', e.message);
+    }
+  }
+
+  // 查找并解析 .zed/languages/*.md
+  const languageFiles = {};
+  const languageNames = ['rust.md', 'python.md', 'typescript.md'];
+  for (const langName of languageNames) {
+    const content = findFileByPattern(extractedFiles, [
+      '.zed/languages/' + langName,
+      'zed/languages/' + langName,
+      'languages/' + langName,
+      langName
+    ]);
+    if (content) {
+      languageFiles[langName] = content;
+    }
+  }
+
+  // 从 language 文件提取额外内容
+  for (const [langName, content] of Object.entries(languageFiles)) {
+    if (content) {
+      // 可以提取语言特定规则，暂不扩展 Schema
+    }
+  }
+
+  // 查找并解析 .zed/prompts/*.md
+  const promptFiles = {};
+  const promptNames = ['explain.md', 'refactor.md', 'test.md'];
+  for (const promptName of promptNames) {
+    const content = findFileByPattern(extractedFiles, [
+      '.zed/prompts/' + promptName,
+      'zed/prompts/' + promptName,
+      'prompts/' + promptName,
+      promptName
+    ]);
+    if (content) {
+      promptFiles[promptName] = content;
+    }
+  }
+
+  UATCore.fillSchemaDefaultValues(schema);
+  return schema;
+}
+
+function parseZedRulesMD(mdText, schema) {
+  if (!mdText) return;
+
+  const nameMatch = mdText.match(/\*Name\*. (.+)/i);
+  if (nameMatch) schema.meta.name = nameMatch[1].trim();
+
+  const constraintsMatch = mdText.match(/## Constraints\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (constraintsMatch) {
+    const lines = constraintsMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.constraints.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+
+  const rulesMatch = mdText.match(/## Code Generation\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (rulesMatch) {
+    const lines = rulesMatch[1].split('\n');
+    for (const line of lines) {
+      if (line.trim().startsWith('-')) {
+        schema.identity.outputRules.push(line.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+
+  const instructionsMatch = mdText.match(/## Additional Instructions\s*\n([\s\S]*?)(?=\n---|$)/i);
+  if (instructionsMatch) {
+    schema.identity.systemPrompt = instructionsMatch[1].trim();
+  }
+}
+
+function parseZedSettingsJSON(jsonText, schema) {
+  if (!jsonText) return;
+
+  try {
+    const settings = JSON.parse(jsonText);
+    if (settings.assistant?.default_model?.model) {
+      schema.modelConfig.model = settings.assistant.default_model.model;
+    }
+  } catch (e) {
+    console.warn('Zed settings JSON parse warning:', e.message);
+  }
+}
+
+// ============================================
+// 导出模块接口
+// ============================================
+
+/**
+ * 将 Schema 转换为 Zed Editor 平台文件结构
+ * @param {Object} schema - UAT-Schema v2.0
+ * @returns {Object} { path: content }
+ */
+function encodeZedToFiles(schema) {
+  return {
+    'rules.md': encodeZedRulesMD(schema),
+    '.zed/settings.json': encodeZedSettingsJSON(schema),
+    '.zed/tasks.json': encodeZedTasksJSON(schema),
+    '.zed/languages/rust.md': encodeZedLanguageRust(schema),
+    '.zed/languages/python.md': encodeZedLanguagePython(schema),
+    '.zed/languages/typescript.md': encodeZedLanguageTypeScript(schema),
+    '.zed/context/files.json': encodeZedContextFiles(schema),
+    '.zed/prompts/explain.md': encodeZedPromptExplain(schema),
+    '.zed/prompts/refactor.md': encodeZedPromptRefactor(schema),
+    '.zed/prompts/test.md': encodeZedPromptTest(schema),
+    '.zedignore': encodeZedIgnore(schema),
+    'README.md': encodeZedReadme(schema)
+  };
+}
+
+window.ZedBundle = {
+  createZedBundle,
+  parseZedBundle,
+  parseZedBundleFromFiles,
+  extractZedProvider,
+  encodeZedRulesMD,
+  encodeZedSettingsJSON,
+  encodeZedTasksJSON,
+  encodeZedLanguageRust,
+  encodeZedLanguagePython,
+  encodeZedLanguageTypeScript,
+  encodeZedContextFiles,
+  encodeZedPromptExplain,
+  encodeZedPromptRefactor,
+  encodeZedPromptTest,
+  encodeZedIgnore,
+  encodeZedReadme,
+  encodeZedToFiles
+};
+
+// Node.js 导出（双环境兼容）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = window.ZedBundle;
+}
+// Link global alias
+ZedBundle = window.ZedBundle;
+
 // ===== src/cli/bundle-cli.js =====
 /**
  * UAT Bundle CLI - Lightweight CLI entry for standalone bundle
@@ -7225,6 +16572,20 @@ return {
   UATParser: window.UATParser,
   UATSchemaExtensions: window.UATSchemaExtensions,
   UATEncoder: window.UATEncoder,
+
+  // Platform Bundle references
+  OpenClawBundle: window.OpenClawBundle,
+  HermesBundle: window.HermesBundle,
+  CursorBundle: window.CursorBundle,
+  WindsurfBundle: window.WindsurfBundle,
+  ClaudeCodeBundle: window.ClaudeCodeBundle,
+  DifyBundle: window.DifyBundle,
+  FastGPTBundle: window.FastGPTBundle,
+  FlowiseBundle: window.FlowiseBundle,
+  CopilotBundle: window.CopilotBundle,
+  CodexBundle: window.CodexBundle,
+  ZedBundle: window.ZedBundle,
+
   supportedPlatforms: ['dify', 'openclaw', 'hermes', 'cursor', 'windsurf', 'claude', 'fastgpt', 'flowise', 'copilot', 'codex', 'zed', 'plain']
 };
 

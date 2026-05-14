@@ -8,7 +8,7 @@
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-green?logo=github)](https://jasond2019.github.io/uat-agent-converter/)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platforms](https://img.shields.io/badge/platforms-12-green.svg)
-![Version](https://img.shields.io/badge/version-1.3.0-purple.svg)
+![Version](https://img.shields.io/badge/version-1.3.1-purple.svg)
 
 **Local · Offline · Secure** — All processing runs locally, no data uploaded to any server.
 

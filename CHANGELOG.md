@@ -2,6 +2,76 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.3.1] - 2026-05-14
+
+### 🎯 Architecture Optimization & Identity Field Enhancement
+
+### Changed - Call Path Unification (Day 1-2)
+
+- **Encoder Pool Simplification** (`src/encoder/encoder-pool.js`)
+  - Reduced from ~1200 lines to ~80 lines
+  - Now acts as dispatcher only, calling Bundle.encodeToFiles()
+  - Deleted redundant encoding functions (duplicate with Bundle)
+  - Unified Web UI and Skill call paths
+
+- **Encoder Registry Simplification** (`src/encoder/encoder-registry.js`)
+  - Removed backward compatibility imports (~15 lines)
+  - Clean UATEncoder class for dispatching
+
+- **Bundle Build Enhancement** (`scripts/build-bundle.js`)
+  - Added 11 platform Bundle files to sourceFiles array
+  - Added global alias linking for each Bundle
+  - Added Bundle exports to API return object
+  - Bundle size: 467 KB (complete platform coverage)
+
+- **Skill Instruction Update** (`.claude/skills/uat-import/skill.md`)
+  - Changed from CLI convert to direct Bundle.encodeXxxToFiles() call
+  - Added note that CLI convert should NOT be used
+  - Ensures complete Knowledge/Skills output
+
+### Added - Encoder Functions (Day 1-2)
+
+- **Knowledge Encoder** (`src/encoder/knowledge-encoder.js`)
+  - Added `encodeKnowledgeToList()` for Markdown list format
+
+- **Skills Encoder** (`src/encoder/skills-encoder.js`)
+  - Added `encodeSkillsToList()` alias for simplified output
+
+### Added - Identity Field Enhancement (Day 3-4)
+
+- **Role Field Conversion** - All 11 platforms now support `identity.role`
+  - Local IDE (Cursor/Windsurf/Copilot/Zed): Markdown `## Role` section
+  - Claude Code: YAML header `role:` field
+  - Codex: YAML header `role:` field
+  - Dify: YAML `identity:` block
+  - FastGPT/Flowise: JSON `identity.role` field
+  - OpenClaw: Markdown `## Role` section in IDENTITY.md
+  - Hermes: YAML `identity:` block
+
+- **Personality Field Conversion** - All 11 platforms support `identity.personality`
+  - Local IDE: Markdown `## Personality` section
+  - Claude Code/Codex: YAML header `personality:` field
+  - Dify: YAML `identity.personality` field
+  - FastGPT/Flowise: JSON `identity.personality` field
+  - OpenClaw: Markdown `## Personality` section
+  - Hermes: YAML `identity.personality` field
+
+- **Language Field Conversion** - Supported platforms (Codex excluded per spec)
+  - Local IDE: Markdown `## Language` section with locale display
+  - Claude Code: YAML header `language:` field
+  - Dify: YAML `identity.language` field
+  - FastGPT/Flowise: JSON `identity.language` field
+  - OpenClaw: Markdown `## Language` section
+  - Hermes: YAML `identity.language` field
+
+### Verified
+
+- Bundle build: 467 KB, 24 files processed
+- All 11 platforms: identity.role/personality/language encoding verified
+- Cross-platform conversion tests passing
+
+---
+
 ## [v1.3.0] - 2026-05-06
 
 ### 🎯 Production Deployment: Bundle + Skill Overhaul

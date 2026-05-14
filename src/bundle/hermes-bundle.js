@@ -12,6 +12,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // Hermes Bundle 创建（导出）
 // ============================================
 
@@ -89,6 +109,11 @@ async function createHermesBundle(schema, options = {}) {
     skillsFolder.file("custom_functions.py", skillsContent.customFunctions);
   }
 
+  // Skills YAML（新格式）
+  if (skillsContent.skillsYAML) {
+    skillsFolder.file("skills.yaml", skillsContent.skillsYAML);
+  }
+
   // 6. memories/ 目录（空目录，可选）
   const memoriesFolder = zip.folder("memories");
   memoriesFolder.file("memory_export.json", JSON.stringify({
@@ -122,6 +147,22 @@ function encodeHermesConfigYAML(schema) {
   lines.push('');
   lines.push('hermes_version: "1.0"');
   lines.push('');
+
+  // Identity 扩展字段
+  if (schema.identity.role || schema.identity.personality || schema.identity.language) {
+    lines.push('# Identity Configuration');
+    lines.push('identity:');
+    if (schema.identity.role) {
+      lines.push(`  role: "${schema.identity.role}"`);
+    }
+    if (schema.identity.personality) {
+      lines.push(`  personality: "${schema.identity.personality}"`);
+    }
+    if (schema.identity.language) {
+      lines.push(`  language: "${schema.identity.language}"`);
+    }
+    lines.push('');
+  }
 
   // 模型配置
   lines.push('# Model Configuration');
@@ -176,7 +217,26 @@ function encodeHermesConfigYAML(schema) {
   if (schema.memory.sessionMemory?.maxMessages) {
     lines.push(`  session_limit: ${schema.memory.sessionMemory.maxMessages}`);
   }
+
+  // 使用memoryEntries编码器（新格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    lines.push('');
+    lines.push('  # Structured Memory Entries');
+    lines.push(memoryEncoder.encodeMemoryEntriesToYAMLWithType(schema.memory.memoryEntries));
+  }
+
   lines.push('');
+
+  // 知识库配置
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      lines.push('# Knowledge Base');
+      lines.push(kbEncoder.encodeKnowledgeToHermesYAML(kbContent));
+    }
+  }
 
   // 安全配置
   lines.push('# Safety & Compliance');
@@ -414,12 +474,19 @@ function encodeHermesEnvExample(schema) {
 // ============================================
 
 function encodeHermesSkillsDir(schema) {
+  const skillsEncoder = getUATSkillsEncoder();
   const result = {
     registry: { skills: [] },
     mcpTools: '',
     apiTools: '',
-    customFunctions: ''
+    customFunctions: '',
+    skillsYAML: ''
   };
+
+  // 使用skillsLayer编码器（新格式）
+  if (schema.skills && skillsEncoder) {
+    result.skillsYAML = skillsEncoder.encodeSkillsToHermesYAML(schema.skills);
+  }
 
   // 技能注册表
   if (schema.tools.mcpServers?.length > 0) {

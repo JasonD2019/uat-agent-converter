@@ -20,6 +20,26 @@
  */
 
 // ============================================
+// 全局模块引用辅助
+// ============================================
+
+function getUATMemoryEncoder() {
+  return typeof UATMemoryEncoder !== 'undefined' ? UATMemoryEncoder : window.UATMemoryEncoder;
+}
+
+function getUATKnowledgeEncoder() {
+  return typeof UATKnowledgeEncoder !== 'undefined' ? UATKnowledgeEncoder : window.UATKnowledgeEncoder;
+}
+
+function getUATSkillsEncoder() {
+  return typeof UATSkillsEncoder !== 'undefined' ? UATSkillsEncoder : window.UATSkillsEncoder;
+}
+
+function getUATMCPEncoder() {
+  return typeof UATMCPEncoder !== 'undefined' ? UATMCPEncoder : window.UATMCPEncoder;
+}
+
+// ============================================
 // Codex CLI Bundle 创建（导出）
 // ============================================
 
@@ -108,6 +128,15 @@ function encodeCodexAgentsMD(schema) {
   sections.push(`name: "${schema.meta.name || 'Codex Agent'}"`);
   sections.push(`description: "${schema.meta.description || 'Codex CLI Assistant'}"`);
   sections.push(`model: "${schema.modelConfig.model || 'gpt-4'}"`);
+
+  // Identity扩展字段（Codex不支持language字段）
+  if (schema.identity.role) {
+    sections.push(`role: "${schema.identity.role}"`);
+  }
+  if (schema.identity.personality) {
+    sections.push(`personality: "${schema.identity.personality}"`);
+  }
+
   sections.push('');
   sections.push('tools:');
   sections.push('  - name: "filesystem"');
@@ -179,6 +208,35 @@ function encodeCodexAgentsMD(schema) {
     sections.push('');
   }
 
+  // Memory encoding（使用表格格式）
+  const memoryEncoder = getUATMemoryEncoder();
+  if (schema.memory.memoryEntries?.length > 0 && memoryEncoder) {
+    sections.push(memoryEncoder.encodeMemoryEntriesToCodexMD(schema.memory.memoryEntries));
+  }
+
+  // 知识库编码（使用表格格式）
+  const kbEncoder = getUATKnowledgeEncoder();
+  if (schema.memory.knowledgeBaseContent && kbEncoder) {
+    const kbContent = schema.memory.knowledgeBaseContent;
+    if (kbContent.datasets?.length > 0 || kbContent.documents?.length > 0) {
+      sections.push('## Knowledge Base');
+      sections.push('');
+      sections.push('| Name | Type | Source |');
+      sections.push('|------|------|--------|');
+      if (kbContent.datasets) {
+        kbContent.datasets.forEach(ds => {
+          sections.push(`| ${ds.name || 'Dataset'} | ${ds.type || 'text'} | ${ds.source || 'N/A'} |`);
+        });
+      }
+      if (kbContent.documents) {
+        kbContent.documents.forEach(doc => {
+          sections.push(`| ${doc.title || 'Document'} | document | ${doc.source || 'N/A'} |`);
+        });
+      }
+      sections.push('');
+    }
+  }
+
   // Workflow
   if (schema.workflow.steps?.length > 0) {
     sections.push('## Workflow');
@@ -188,6 +246,12 @@ function encodeCodexAgentsMD(schema) {
       sections.push(`${i + 1}. ${step.name}`);
     }
     sections.push('');
+  }
+
+  // Skills encoding（使用表格格式）
+  const skillsEncoder = getUATSkillsEncoder();
+  if (schema.skills && skillsEncoder) {
+    sections.push(skillsEncoder.encodeSkillsToCodexMD(schema.skills));
   }
 
   sections.push('---');

@@ -32,8 +32,21 @@ const sourceFiles = [
   'src/encoder/skills-encoder.js',
   'src/encoder/mcp-encoder.js',
 
-  // Utility Layer (bundle-base only, not export-utils which is UI-only)
+  // Utility Layer
   'src/bundle/bundle-base.js',
+
+  // Platform Bundles (all 11 platforms)
+  'src/bundle/openclaw-bundle.js',
+  'src/bundle/hermes-bundle.js',
+  'src/bundle/cursor-bundle.js',
+  'src/bundle/windsurf-bundle.js',
+  'src/bundle/claude-code-bundle.js',
+  'src/bundle/dify-bundle.js',
+  'src/bundle/fastgpt-bundle.js',
+  'src/bundle/flowise-bundle.js',
+  'src/bundle/copilot-bundle.js',
+  'src/bundle/codex-bundle.js',
+  'src/bundle/zed-bundle.js',
 
   // CLI Entry
   'src/cli/bundle-cli.js'
@@ -122,6 +135,19 @@ var BundleBase;
 var runParserPool;
 var runEncoderPool;
 
+// Platform Bundle aliases
+var OpenClawBundle;
+var HermesBundle;
+var CursorBundle;
+var WindsurfBundle;
+var ClaudeCodeBundle;
+var DifyBundle;
+var FastGPTBundle;
+var FlowiseBundle;
+var CopilotBundle;
+var CodexBundle;
+var ZedBundle;
+
 `;
 
   // Merge source files
@@ -154,6 +180,28 @@ var runEncoderPool;
       bundleContent += `\n// UATEncoder class defined above and exported to window.UATEncoder\n`;
     } else if (srcFile === 'src/bundle/bundle-base.js') {
       bundleContent += `\n// Link global alias\nBundleBase = window.BundleBase;\n`;
+    } else if (srcFile === 'src/bundle/openclaw-bundle.js') {
+      bundleContent += `\n// Link global alias\nOpenClawBundle = window.OpenClawBundle;\n`;
+    } else if (srcFile === 'src/bundle/hermes-bundle.js') {
+      bundleContent += `\n// Link global alias\nHermesBundle = window.HermesBundle;\n`;
+    } else if (srcFile === 'src/bundle/cursor-bundle.js') {
+      bundleContent += `\n// Link global alias\nCursorBundle = window.CursorBundle;\n`;
+    } else if (srcFile === 'src/bundle/windsurf-bundle.js') {
+      bundleContent += `\n// Link global alias\nWindsurfBundle = window.WindsurfBundle;\n`;
+    } else if (srcFile === 'src/bundle/claude-code-bundle.js') {
+      bundleContent += `\n// Link global alias\nClaudeCodeBundle = window.ClaudeCodeBundle;\n`;
+    } else if (srcFile === 'src/bundle/dify-bundle.js') {
+      bundleContent += `\n// Link global alias\nDifyBundle = window.DifyBundle;\n`;
+    } else if (srcFile === 'src/bundle/fastgpt-bundle.js') {
+      bundleContent += `\n// Link global alias\nFastGPTBundle = window.FastGPTBundle;\n`;
+    } else if (srcFile === 'src/bundle/flowise-bundle.js') {
+      bundleContent += `\n// Link global alias\nFlowiseBundle = window.FlowiseBundle;\n`;
+    } else if (srcFile === 'src/bundle/copilot-bundle.js') {
+      bundleContent += `\n// Link global alias\nCopilotBundle = window.CopilotBundle;\n`;
+    } else if (srcFile === 'src/bundle/codex-bundle.js') {
+      bundleContent += `\n// Link global alias\nCodexBundle = window.CodexBundle;\n`;
+    } else if (srcFile === 'src/bundle/zed-bundle.js') {
+      bundleContent += `\n// Link global alias\nZedBundle = window.ZedBundle;\n`;
     }
   }
 
@@ -212,6 +260,20 @@ return {
   UATParser: window.UATParser,
   UATSchemaExtensions: window.UATSchemaExtensions,
   UATEncoder: window.UATEncoder,
+
+  // Platform Bundle references
+  OpenClawBundle: window.OpenClawBundle,
+  HermesBundle: window.HermesBundle,
+  CursorBundle: window.CursorBundle,
+  WindsurfBundle: window.WindsurfBundle,
+  ClaudeCodeBundle: window.ClaudeCodeBundle,
+  DifyBundle: window.DifyBundle,
+  FastGPTBundle: window.FastGPTBundle,
+  FlowiseBundle: window.FlowiseBundle,
+  CopilotBundle: window.CopilotBundle,
+  CodexBundle: window.CodexBundle,
+  ZedBundle: window.ZedBundle,
+
   supportedPlatforms: ['dify', 'openclaw', 'hermes', 'cursor', 'windsurf', 'claude', 'fastgpt', 'flowise', 'copilot', 'codex', 'zed', 'plain']
 };
 
